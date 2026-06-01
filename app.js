@@ -1,6 +1,8 @@
 const STORAGE_KEY = "jurassic-planner-v1";
 const AUTO_BACKUP_KEY = "jurassic-planner-auto-backup-v2";
 const SCHEMA_VERSION = 3;
+const DINO_WIKI_API = "https://jurassic-world-the-mobile-game.fandom.com/api.php";
+const DINO_WIKI_BASE = "https://jurassic-world-the-mobile-game.fandom.com/wiki/";
 
 const categoryLabels = {
   dino: "Dinossauro",
@@ -83,6 +85,7 @@ let viewerState = {
   itemId: "",
   imageIndex: 0,
 };
+let pendingDinoWikiData = null;
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
@@ -117,6 +120,7 @@ function bindEvents() {
   $("#newCalendarEventButton").addEventListener("click", () => openCalendarDialog());
   $("#newDinoButton").addEventListener("click", () => openDinoDialog());
   $("#newGoalButton").addEventListener("click", () => openGoalDialog());
+  $("#fetchDinoWikiButton").addEventListener("click", fetchDinoWikiFromForm);
   $("#resetRecurringButton").addEventListener("click", resetRecurringTasks);
   $("#resetRecurringFromTasks").addEventListener("click", resetRecurringTasks);
   $("#cancelTimelineEdit").addEventListener("click", resetTimelineForm);
@@ -182,6 +186,7 @@ function handleDocumentClick(event) {
   if (action === "delete-calendar") deleteCalendarEvent(id);
   if (action === "edit-dino") openDinoDialog(getDino(id));
   if (action === "delete-dino") deleteDino(id);
+  if (action === "apply-dino-wiki") applyPendingDinoWikiData();
   if (action === "edit-goal") openGoalDialog(getGoal(id));
   if (action === "delete-goal") deleteGoal(id);
   if (action === "goal-step") updateGoalProgress(id, Number(actionButton.dataset.amount || 0));
@@ -349,6 +354,17 @@ function hydrateDino(dino) {
     foodNeeded: toNumber(dino.foodNeeded, 0),
     missionId: dino.missionId || "",
     notes: dino.notes || "",
+    wikiTitle: dino.wikiTitle || "",
+    wikiUrl: dino.wikiUrl || "",
+    wikiImageUrl: dino.wikiImageUrl || "",
+    wikiClass: dino.wikiClass || "",
+    wikiRarity: dino.wikiRarity || "",
+    incubationTime: dino.incubationTime || "",
+    parents: dino.parents || "",
+    hybrids: dino.hybrids || "",
+    health40: dino.health40 || "",
+    damage40: dino.damage40 || "",
+    coinsPerMinute: dino.coinsPerMinute || "",
     tags: normalizeTags(dino.tags),
     createdAt: dino.createdAt || new Date().toISOString(),
     updatedAt: dino.updatedAt || "",
@@ -812,8 +828,15 @@ function renderAgendaItem(item) {
 function renderDinoCard(dino) {
   const mission = dino.missionId ? getMission(dino.missionId) : null;
   const progress = getDinoProgress(dino);
+  const image = safeImageUrl(dino.wikiImageUrl);
+  const wikiStats = [
+    dino.health40 ? `Vida 40: ${dino.health40}` : "",
+    dino.damage40 ? `Dano 40: ${dino.damage40}` : "",
+    dino.coinsPerMinute ? `Moedas/min: ${dino.coinsPerMinute}` : "",
+  ].filter(Boolean);
   return `
     <article class="dino-card">
+      ${image ? `<img class="dino-image" src="${escapeHtml(image)}" alt="${escapeHtml(dino.name)}" loading="lazy" />` : ""}
       <div class="item-title-row">
         <h3>${escapeHtml(dino.name)}</h3>
         <span class="tag">${escapeHtml(dinoClassLabels[dino.classType] || dino.classType)}</span>
@@ -828,7 +851,11 @@ function renderDinoCard(dino) {
         <span>Comida: ${escapeHtml(formatNumber(dino.foodNeeded))}</span>
       </div>
       ${mission ? `<p class="item-description">Missão: ${escapeHtml(mission.name)}</p>` : ""}
+      ${dino.parents ? `<p class="item-description">Pais: ${escapeHtml(dino.parents)}</p>` : ""}
+      ${dino.hybrids ? `<p class="item-description">Híbridos: ${escapeHtml(dino.hybrids)}</p>` : ""}
+      ${wikiStats.length ? `<div class="wiki-stat-row">${wikiStats.map((stat) => `<span>${escapeHtml(stat)}</span>`).join("")}</div>` : ""}
       ${dino.notes ? `<p class="item-description">${escapeHtml(dino.notes)}</p>` : ""}
+      ${dino.wikiUrl ? `<a class="source-link" href="${escapeHtml(dino.wikiUrl)}" target="_blank" rel="noreferrer">Fonte: Jurassic World: The Game Wiki</a>` : ""}
       ${renderTagRow(dino.tags)}
       <div class="card-actions">
         <button class="icon-button" type="button" data-action="edit-dino" data-id="${escapeHtml(dino.id)}" title="Editar">
@@ -1151,6 +1178,17 @@ function handleDinoSubmit(event) {
     foodNeeded: Math.max(0, toNumber(data.foodNeeded, 0)),
     missionId: data.missionId || "",
     notes: String(data.notes || "").trim(),
+    wikiTitle: String(data.wikiTitle || "").trim(),
+    wikiUrl: String(data.wikiUrl || "").trim(),
+    wikiImageUrl: safeImageUrl(data.wikiImageUrl) || "",
+    wikiClass: String(data.wikiClass || "").trim(),
+    wikiRarity: String(data.wikiRarity || "").trim(),
+    incubationTime: String(data.incubationTime || "").trim(),
+    parents: String(data.parents || "").trim(),
+    hybrids: String(data.hybrids || "").trim(),
+    health40: String(data.health40 || "").trim(),
+    damage40: String(data.damage40 || "").trim(),
+    coinsPerMinute: String(data.coinsPerMinute || "").trim(),
     tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1328,6 +1366,19 @@ function openDinoDialog(dino = null) {
   form.elements.missionId.value = dino?.missionId || "";
   form.elements.notes.value = dino?.notes || "";
   form.elements.tags.value = formTagsValue(dino?.tags);
+  form.elements.wikiTitle.value = dino?.wikiTitle || "";
+  form.elements.wikiUrl.value = dino?.wikiUrl || "";
+  form.elements.wikiImageUrl.value = dino?.wikiImageUrl || "";
+  form.elements.wikiClass.value = dino?.wikiClass || "";
+  form.elements.wikiRarity.value = dino?.wikiRarity || "";
+  form.elements.incubationTime.value = dino?.incubationTime || "";
+  form.elements.parents.value = dino?.parents || "";
+  form.elements.hybrids.value = dino?.hybrids || "";
+  form.elements.health40.value = dino?.health40 || "";
+  form.elements.damage40.value = dino?.damage40 || "";
+  form.elements.coinsPerMinute.value = dino?.coinsPerMinute || "";
+  pendingDinoWikiData = null;
+  renderDinoWikiResult(dino?.wikiTitle ? getDinoWikiDataFromDino(dino) : null, { applied: Boolean(dino?.wikiTitle) });
   showDialog("#dinoDialog");
 }
 
@@ -1344,6 +1395,250 @@ function openGoalDialog(goal = null) {
   form.elements.notes.value = goal?.notes || "";
   form.elements.tags.value = formTagsValue(goal?.tags);
   showDialog("#goalDialog");
+}
+
+async function fetchDinoWikiFromForm() {
+  const form = $("#dinoForm");
+  const name = form.elements.name.value.trim();
+  if (!name) {
+    renderDinoWikiMessage("Digite o nome do dino antes de buscar.", true);
+    return;
+  }
+
+  const button = $("#fetchDinoWikiButton");
+  const label = button.querySelector("span");
+  const oldLabel = label.textContent;
+  button.disabled = true;
+  label.textContent = "Buscando";
+  renderDinoWikiMessage("Buscando na Jurassic World: The Game Wiki...");
+
+  try {
+    pendingDinoWikiData = await fetchDinoWikiData(name);
+    renderDinoWikiResult(pendingDinoWikiData);
+  } catch (error) {
+    console.error(error);
+    pendingDinoWikiData = null;
+    renderDinoWikiMessage(error.message || "Não encontrei esse dino na wiki.", true);
+  } finally {
+    button.disabled = false;
+    label.textContent = oldLabel;
+    refreshIcons();
+  }
+}
+
+async function fetchDinoWikiData(name) {
+  const searchParams = new URLSearchParams({
+    action: "query",
+    list: "search",
+    srsearch: name,
+    format: "json",
+    origin: "*",
+  });
+  const searchPayload = await fetchJson(`${DINO_WIKI_API}?${searchParams}`);
+  const hit = chooseDinoWikiHit(searchPayload?.query?.search || [], name);
+  if (!hit) throw new Error("Não encontrei uma página de criatura com esse nome.");
+
+  const parseParams = new URLSearchParams({
+    action: "parse",
+    page: hit.title,
+    prop: "text|displaytitle",
+    format: "json",
+    origin: "*",
+  });
+  const pagePayload = await fetchJson(`${DINO_WIKI_API}?${parseParams}`);
+  const html = pagePayload?.parse?.text?.["*"];
+  if (!html) throw new Error("A wiki respondeu, mas não trouxe os dados da página.");
+  return extractDinoWikiData(html, pagePayload.parse.title || hit.title, pagePayload.parse.displaytitle || hit.title);
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("A wiki recusou a busca agora. Tente novamente em alguns segundos.");
+  return response.json();
+}
+
+function chooseDinoWikiHit(results, name) {
+  const query = normalizeText(name);
+  const exact = results.find((result) => normalizeText(result.title) === query);
+  if (exact) return exact;
+  return results.find((result) => !/pack|event|category|template/i.test(result.title)) || results[0];
+}
+
+function extractDinoWikiData(html, title, displayTitle) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const wikiClass = readPiField(doc, "class");
+  const wikiRarity = readPiField(doc, "rarity");
+  const buyPriceText = readPiField(doc, "buyprice", true);
+  const imageUrl = normalizeWikiImageUrl(doc.querySelector(".pi-image img, aside img")?.getAttribute("src") || "");
+  const parents = readPiField(doc, "parents");
+  const hybrids = readPiField(doc, "hybrid") || readPiField(doc, "hybrids");
+  const description = extractDinoDescription(doc);
+  const dnaPrice = /lp/i.test(buyPriceText) ? 0 : extractFirstNumber(buyPriceText);
+
+  const data = {
+    title: stripText(displayTitle || title),
+    pageTitle: title,
+    wikiUrl: `${DINO_WIKI_BASE}${encodeURIComponent(title.replaceAll(" ", "_"))}`,
+    imageUrl,
+    wikiClass,
+    classType: mapWikiClass(wikiClass),
+    wikiRarity,
+    rarity: mapWikiRarity(wikiRarity),
+    incubationTime: readPiField(doc, "incubation"),
+    parents,
+    hybrids,
+    buyPriceText,
+    dnaPrice,
+    health40: readPiField(doc, "health"),
+    damage40: readPiField(doc, "damage"),
+    coinsPerMinute: readPiField(doc, "coins"),
+    description,
+    tags: normalizeTags([wikiClass, wikiRarity, parents ? "híbrido" : "", hybrids ? "fusão" : ""]),
+  };
+
+  if (!data.wikiClass && !data.wikiRarity && !data.health40) {
+    throw new Error("Encontrei a página, mas ela não parece ter a ficha de criatura do jogo.");
+  }
+
+  return data;
+}
+
+function readPiField(doc, source, includeImageAlt = false) {
+  const node = doc.querySelector(`[data-source="${source}"] .pi-data-value`);
+  if (!node) return "";
+  const clone = node.cloneNode(true);
+  if (includeImageAlt) {
+    clone.querySelectorAll("img").forEach((image) => image.replaceWith(` ${image.alt || ""} `));
+  }
+  return stripText(clone.textContent);
+}
+
+function extractDinoDescription(doc) {
+  const paragraphs = Array.from(doc.querySelectorAll("#mw-content-text p, .mw-parser-output > p"))
+    .map((paragraph) => stripText(paragraph.textContent))
+    .filter((text) => text.length > 80 && !/^this article needs/i.test(text));
+  return paragraphs[0] ? `${paragraphs[0].slice(0, 320)}${paragraphs[0].length > 320 ? "..." : ""}` : "";
+}
+
+function renderDinoWikiResult(data, options = {}) {
+  const panel = $("#dinoWikiResult");
+  if (!data) {
+    panel.classList.add("is-hidden");
+    panel.innerHTML = "";
+    return;
+  }
+
+  const stats = [
+    data.wikiClass ? `Classe: ${data.wikiClass}` : "",
+    data.wikiRarity ? `Raridade: ${data.wikiRarity}` : "",
+    data.dnaPrice ? `Preço: ${formatNumber(data.dnaPrice)} DNA` : data.buyPriceText ? `Preço: ${data.buyPriceText}` : "",
+    data.incubationTime ? `Incubação: ${data.incubationTime}` : "",
+    data.health40 ? `Vida 40: ${data.health40}` : "",
+    data.damage40 ? `Dano 40: ${data.damage40}` : "",
+    data.coinsPerMinute ? `Moedas/min: ${data.coinsPerMinute}` : "",
+  ].filter(Boolean);
+
+  panel.classList.remove("is-hidden", "is-error");
+  panel.innerHTML = `
+    <div class="wiki-result-top">
+      ${data.imageUrl ? `<img src="${escapeHtml(data.imageUrl)}" alt="${escapeHtml(data.title)}" />` : ""}
+      <div>
+        <strong>${escapeHtml(data.title)}</strong>
+        <span>Fonte: Jurassic World: The Game Wiki</span>
+      </div>
+    </div>
+    <div class="wiki-chip-list">${stats.map((stat) => `<span>${escapeHtml(stat)}</span>`).join("")}</div>
+    ${data.parents ? `<p>Pais: ${escapeHtml(data.parents)}</p>` : ""}
+    ${data.hybrids ? `<p>Híbridos: ${escapeHtml(data.hybrids)}</p>` : ""}
+    ${data.description ? `<p>${escapeHtml(data.description)}</p>` : ""}
+    <div class="action-row">
+      <a class="secondary-button" href="${escapeHtml(data.wikiUrl)}" target="_blank" rel="noreferrer">Abrir fonte</a>
+      ${
+        options.applied
+          ? `<span class="status-pill status-done">Dados aplicados</span>`
+          : `<button class="primary-button" type="button" data-action="apply-dino-wiki"><i data-lucide="check"></i><span>Aplicar dados</span></button>`
+      }
+    </div>
+  `;
+  refreshIcons();
+}
+
+function renderDinoWikiMessage(message, isError = false) {
+  const panel = $("#dinoWikiResult");
+  panel.classList.remove("is-hidden");
+  panel.classList.toggle("is-error", isError);
+  panel.innerHTML = `<p>${escapeHtml(message)}</p>`;
+}
+
+function applyPendingDinoWikiData() {
+  if (!pendingDinoWikiData) return;
+  applyDinoWikiDataToForm(pendingDinoWikiData);
+  renderDinoWikiResult(pendingDinoWikiData, { applied: true });
+  showToast("Dados da wiki aplicados.");
+}
+
+function applyDinoWikiDataToForm(data) {
+  const form = $("#dinoForm");
+  form.elements.name.value = data.title || form.elements.name.value;
+  if (data.classType) form.elements.classType.value = data.classType;
+  if (data.rarity) form.elements.rarity.value = data.rarity;
+  if (data.dnaPrice) form.elements.dnaNeeded.value = data.dnaPrice;
+  if (!form.elements.notes.value && data.description) form.elements.notes.value = data.description;
+
+  form.elements.wikiTitle.value = data.title || "";
+  form.elements.wikiUrl.value = data.wikiUrl || "";
+  form.elements.wikiImageUrl.value = data.imageUrl || "";
+  form.elements.wikiClass.value = data.wikiClass || "";
+  form.elements.wikiRarity.value = data.wikiRarity || "";
+  form.elements.incubationTime.value = data.incubationTime || "";
+  form.elements.parents.value = data.parents || "";
+  form.elements.hybrids.value = data.hybrids || "";
+  form.elements.health40.value = data.health40 || "";
+  form.elements.damage40.value = data.damage40 || "";
+  form.elements.coinsPerMinute.value = data.coinsPerMinute || "";
+  form.elements.tags.value = formTagsValue([...parseTags(form.elements.tags.value), ...data.tags]);
+}
+
+function getDinoWikiDataFromDino(dino) {
+  return {
+    title: dino.wikiTitle || dino.name,
+    wikiUrl: dino.wikiUrl,
+    imageUrl: dino.wikiImageUrl,
+    wikiClass: dino.wikiClass,
+    classType: dino.classType,
+    wikiRarity: dino.wikiRarity,
+    rarity: dino.rarity,
+    incubationTime: dino.incubationTime,
+    parents: dino.parents,
+    hybrids: dino.hybrids,
+    health40: dino.health40,
+    damage40: dino.damage40,
+    coinsPerMinute: dino.coinsPerMinute,
+    description: dino.notes,
+    tags: dino.tags,
+  };
+}
+
+function mapWikiClass(value) {
+  const text = normalizeText(value);
+  if (text.includes("carnivore")) return "carnivore";
+  if (text.includes("herbivore")) return "herbivore";
+  if (text.includes("pterosaur")) return "pterosaur";
+  if (text.includes("amphibian")) return "amphibian";
+  if (/(reef|surface|cave)/.test(text)) return "aquatic";
+  if (/(savannah|snow|cavern)/.test(text)) return "cenozoic";
+  return "hybrid";
+}
+
+function mapWikiRarity(value) {
+  const text = normalizeText(value);
+  if (text.includes("tournament")) return "tournament";
+  if (text.includes("vip")) return "vip";
+  if (text.includes("super")) return "super-rare";
+  if (text.includes("legendary")) return "legendary";
+  if (text.includes("rare")) return "rare";
+  if (text.includes("common")) return "common";
+  return "legendary";
 }
 
 function openTimelineForEdit(id) {
@@ -2183,6 +2478,23 @@ function renderTagRow(tags) {
   return `<div class="tag-row">${cleanTags.map((tag) => `<span class="tag tag-custom">#${escapeHtml(tag)}</span>`).join("")}</div>`;
 }
 
+function stripText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function extractFirstNumber(value) {
+  const match = String(value || "").replace(/\./g, "").match(/\d[\d,]*/);
+  return match ? Number(match[0].replace(/\D/g, "")) : 0;
+}
+
+function normalizeWikiImageUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (url.startsWith("//")) return `https:${url}`;
+  if (url.startsWith("https://")) return url;
+  return "";
+}
+
 function getDinoProgress(dino) {
   const target = Math.max(1, toNumber(dino.targetLevel, 40));
   const current = Math.max(0, toNumber(dino.currentLevel, 1));
@@ -2332,6 +2644,8 @@ function normalizeText(value) {
 function safeImageUrl(url) {
   const value = String(url || "");
   if (value.startsWith("https://res.cloudinary.com/")) return value;
+  if (value.startsWith("https://static.wikia.nocookie.net/")) return value;
+  if (value.startsWith("https://static.wikia.com/")) return value;
   if (value.startsWith("data:image/")) return value;
   if (value.startsWith("blob:")) return value;
   return "";

@@ -741,16 +741,34 @@
     <dialog id="dinoDialog" class="app-dialog">
       <form id="dinoForm" class="dialog-card">
         <input name="id" type="hidden" />
+        <input name="wikiTitle" type="hidden" />
+        <input name="wikiUrl" type="hidden" />
+        <input name="wikiImageUrl" type="hidden" />
+        <input name="wikiClass" type="hidden" />
+        <input name="wikiRarity" type="hidden" />
+        <input name="incubationTime" type="hidden" />
+        <input name="parents" type="hidden" />
+        <input name="hybrids" type="hidden" />
+        <input name="health40" type="hidden" />
+        <input name="damage40" type="hidden" />
+        <input name="coinsPerMinute" type="hidden" />
         <div class="dialog-heading">
           <h2 id="dinoDialogTitle">Novo dino</h2>
           <button class="icon-button" type="button" data-close-dialog title="Fechar">
             <i data-lucide="x"></i>
           </button>
         </div>
-        <label>
-          <span>Nome</span>
-          <input name="name" type="text" required autocomplete="off" />
-        </label>
+        <div class="form-row dino-name-row">
+          <label>
+            <span>Nome</span>
+            <input name="name" type="text" required autocomplete="off" />
+          </label>
+          <button id="fetchDinoWikiButton" class="secondary-button" type="button">
+            <i data-lucide="search"></i>
+            <span>Buscar na wiki</span>
+          </button>
+        </div>
+        <div id="dinoWikiResult" class="wiki-result is-hidden"></div>
         <div class="form-row three-cols">
           <label>
             <span>Classe</span>

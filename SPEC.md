@@ -6,6 +6,7 @@ Implementado nesta rodada, sem login/sincronização:
 
 - calendário de eventos
 - sistema de dinossauros
+- integração de dinos com a Jurassic World: The Game Wiki / Fandom
 - metas semanais
 - painel inteligente
 - exportação da timeline
@@ -46,6 +47,36 @@ Cada dino possui:
 - missão ligada
 - notas
 - tags
+
+## Integração Com Wiki
+
+Fonte única:
+
+- Jurassic World: The Game Wiki / Fandom
+
+Fluxo:
+
+1. Usuário abre `Novo dino`.
+2. Digita o nome do dinossauro.
+3. Clica em `Buscar na wiki`.
+4. O app consulta a API da Fandom.
+5. O app mostra uma prévia dos dados encontrados.
+6. O usuário clica em `Aplicar dados`.
+
+Dados preenchidos quando disponíveis:
+
+- nome
+- classe
+- raridade
+- preço em DNA
+- tempo de incubação
+- pais do híbrido
+- híbridos derivados
+- vida no nível 40
+- dano no nível 40
+- moedas por minuto
+- imagem
+- link da fonte
 
 ## Metas Semanais
 

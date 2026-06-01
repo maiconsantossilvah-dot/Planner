@@ -20,6 +20,7 @@ Também é possível abrir `index.html` direto no navegador.
 - missões com etapas, notas, prioridade, categoria e progresso automático
 - calendário com eventos do jogo, tarefas, missões e metas por data
 - sistema de dinossauros com classe, raridade, nível alvo, DNA/comida e missão ligada
+- busca na Jurassic World: The Game Wiki para preencher dados do dino
 - metas semanais com progresso
 - painel inteligente com alertas de atraso, metas e objetivos quase prontos
 - linha do tempo com múltiplos prints por registro
@@ -45,6 +46,28 @@ No Cloudinary, crie um upload preset sem assinatura para imagens. Depois, no app
 6. Clique em `Testar Cloudinary`.
 
 Sem essa configuração, os prints ficam salvos apenas no navegador.
+
+## Wiki Dos Dinos
+
+Na aba `Dinos`, abra `Novo dino`, digite o nome e clique em `Buscar na wiki`.
+
+O app usa apenas a fonte:
+
+- `Jurassic World: The Game Wiki / Fandom`
+
+Quando encontrar uma página de criatura, ele mostra uma prévia e pode preencher:
+
+- nome
+- classe
+- raridade
+- preço em DNA
+- tempo de incubação
+- pais do híbrido
+- híbridos derivados
+- vida no nível 40
+- dano no nível 40
+- moedas por minuto
+- imagem e link da fonte
 
 ## Arquivos
 

@@ -630,6 +630,92 @@ label span {
   gap: 14px;
 }
 
+.dino-name-row {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.wiki-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(95, 215, 207, 0.42);
+  border-radius: var(--radius);
+  background: #101311;
+}
+
+.wiki-result.is-error {
+  border-color: rgba(238, 116, 111, 0.45);
+}
+
+.wiki-result p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.wiki-result-top {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.wiki-result-top img {
+  width: 58px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: #090b0a;
+}
+
+.wiki-result-top strong,
+.wiki-result-top span {
+  display: block;
+}
+
+.wiki-result-top span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.wiki-chip-list,
+.wiki-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.wiki-chip-list span,
+.wiki-stat-row span {
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.dino-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: #101311;
+}
+
+.source-link {
+  color: var(--cyan);
+  font-size: 0.84rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1288,6 +1374,7 @@ svg {
   .dino-grid,
   .gallery-grid,
   .meta-grid,
+  .dino-name-row,
   .two-cols,
   .three-cols,
   .preview-grid {
