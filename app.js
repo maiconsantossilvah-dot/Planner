@@ -109,6 +109,9 @@ function bindEvents() {
   $("#missionForm").addEventListener("submit", handleMissionSubmit);
   $("#calendarForm").addEventListener("submit", handleCalendarSubmit);
   $("#dinoForm").addEventListener("submit", handleDinoSubmit);
+  ["currentLevel", "targetLevel"].forEach((name) => {
+    $("#dinoForm").elements[name].addEventListener("input", () => updateDinoResourceFields());
+  });
   $("#goalForm").addEventListener("submit", handleGoalSubmit);
   $("#timelineForm").addEventListener("submit", handleTimelineSubmit);
   $("#settingsForm").addEventListener("submit", handleSettingsSubmit);
@@ -343,13 +346,17 @@ function hydrateCalendarEvent(event) {
 }
 
 function hydrateDino(dino) {
-  return {
+  const foodCosts = normalizeDinoFoodCosts(dino.foodCosts);
+  const dnaPrice = Math.max(0, toNumber(dino.dnaPrice, dino.wikiTitle ? dino.dnaNeeded : 0));
+  const hydrated = {
     id: dino.id || createId(),
     name: stripText(dino.name) || "Dino sem nome",
     classType: dino.classType || "carnivore",
     rarity: dino.rarity || "common",
     currentLevel: toNumber(dino.currentLevel, 1),
     targetLevel: toNumber(dino.targetLevel, 40),
+    dnaPrice,
+    foodCosts,
     dnaNeeded: toNumber(dino.dnaNeeded, 0),
     foodNeeded: toNumber(dino.foodNeeded, 0),
     missionId: dino.missionId || "",
@@ -368,6 +375,12 @@ function hydrateDino(dino) {
     tags: normalizeTags(dino.tags),
     createdAt: dino.createdAt || new Date().toISOString(),
     updatedAt: dino.updatedAt || "",
+  };
+  const resources = calculateDinoResources(hydrated);
+  return {
+    ...hydrated,
+    dnaNeeded: resources.hasDnaPrice ? resources.dnaNeeded : hydrated.dnaNeeded,
+    foodNeeded: resources.hasFoodCosts ? resources.foodNeeded : hydrated.foodNeeded,
   };
 }
 
@@ -1167,6 +1180,7 @@ function handleDinoSubmit(event) {
   const data = Object.fromEntries(new FormData(form).entries());
   const id = data.id || createId();
   const existing = getDino(id);
+  const resources = calculateDinoResourcesFromForm(form);
   const dino = {
     id,
     name: stripText(data.name) || "Dino sem nome",
@@ -1174,8 +1188,10 @@ function handleDinoSubmit(event) {
     rarity: data.rarity || "common",
     currentLevel: clampNumber(data.currentLevel, 1, 40, 1),
     targetLevel: clampNumber(data.targetLevel, 1, 40, 40),
-    dnaNeeded: Math.max(0, toNumber(data.dnaNeeded, 0)),
-    foodNeeded: Math.max(0, toNumber(data.foodNeeded, 0)),
+    dnaPrice: resources.dnaPrice,
+    foodCosts: resources.foodCosts,
+    dnaNeeded: resources.hasDnaPrice ? resources.dnaNeeded : Math.max(0, toNumber(data.dnaNeeded, existing?.dnaNeeded || 0)),
+    foodNeeded: resources.hasFoodCosts ? resources.foodNeeded : Math.max(0, toNumber(data.foodNeeded, existing?.foodNeeded || 0)),
     missionId: data.missionId || "",
     notes: String(data.notes || "").trim(),
     wikiTitle: String(data.wikiTitle || "").trim(),
@@ -1361,6 +1377,8 @@ function openDinoDialog(dino = null) {
   form.elements.rarity.value = dino?.rarity || "common";
   form.elements.currentLevel.value = dino?.currentLevel || 1;
   form.elements.targetLevel.value = dino?.targetLevel || 40;
+  form.elements.dnaPrice.value = dino?.dnaPrice || (dino?.wikiTitle ? dino?.dnaNeeded : 0) || 0;
+  form.elements.foodCosts.value = serializeDinoFoodCosts(dino?.foodCosts);
   form.elements.dnaNeeded.value = dino?.dnaNeeded || 0;
   form.elements.foodNeeded.value = dino?.foodNeeded || 0;
   form.elements.missionId.value = dino?.missionId || "";
@@ -1379,6 +1397,7 @@ function openDinoDialog(dino = null) {
   form.elements.coinsPerMinute.value = dino?.coinsPerMinute || "";
   pendingDinoWikiData = null;
   renderDinoWikiResult(dino?.wikiTitle ? getDinoWikiDataFromDino(dino) : null, { applied: Boolean(dino?.wikiTitle) });
+  updateDinoResourceFields(form);
   showDialog("#dinoDialog");
 }
 
@@ -1474,6 +1493,7 @@ function extractDinoWikiData(html, title, displayTitle) {
   const hybrids = readPiField(doc, "hybrid") || readPiField(doc, "hybrids");
   const description = extractDinoDescription(doc);
   const dnaPrice = /lp/i.test(buyPriceText) ? 0 : extractFirstNumber(buyPriceText);
+  const foodCosts = extractDinoFoodCosts(doc);
 
   const data = {
     title: stripText(displayTitle || title),
@@ -1489,6 +1509,7 @@ function extractDinoWikiData(html, title, displayTitle) {
     hybrids,
     buyPriceText,
     dnaPrice,
+    foodCosts,
     health40: readPiField(doc, "health"),
     damage40: readPiField(doc, "damage"),
     coinsPerMinute: readPiField(doc, "coins"),
@@ -1520,6 +1541,140 @@ function extractDinoDescription(doc) {
   return paragraphs[0] ? `${paragraphs[0].slice(0, 320)}${paragraphs[0].length > 320 ? "..." : ""}` : "";
 }
 
+function extractDinoFoodCosts(doc) {
+  const table = $$("table", doc).find((item) => {
+    const headers = $$("th", item).map((header) => normalizeText(header.textContent));
+    return headers.includes("level") && headers.some((header) => header.includes("food"));
+  });
+  if (!table) return {};
+
+  const costs = {};
+  $$("tr", table).forEach((row) => {
+    const cells = $$("td", row);
+    if (cells.length < 2) return;
+
+    const level = extractFirstNumber(cells[0].textContent);
+    if (level < 1 || level > 39) return;
+
+    const foodCell = cells[1];
+    const imageText = $$("img", foodCell)
+      .map((image) => `${image.alt || ""} ${image.getAttribute("data-image-name") || ""} ${image.getAttribute("data-image-key") || ""}`)
+      .join(" ");
+    const foodText = stripText(foodCell.textContent);
+    if (/s-?dna|dna/i.test(imageText) || /fuse|\//i.test(foodText)) return;
+
+    const cost = extractFirstNumber(foodText);
+    if (cost > 0) costs[level] = cost;
+  });
+
+  return costs;
+}
+
+function updateDinoResourceFields(form = $("#dinoForm")) {
+  const resources = calculateDinoResourcesFromForm(form);
+  if (resources.hasDnaPrice) form.elements.dnaNeeded.value = resources.dnaNeeded;
+  if (resources.hasFoodCosts) form.elements.foodNeeded.value = resources.foodNeeded;
+}
+
+function calculateDinoResourcesFromForm(form) {
+  return calculateDinoResources({
+    currentLevel: form.elements.currentLevel.value,
+    targetLevel: form.elements.targetLevel.value,
+    dnaPrice: form.elements.dnaPrice.value,
+    foodCosts: form.elements.foodCosts.value,
+  });
+}
+
+function calculateDinoResources(source) {
+  const currentLevel = clampNumber(source.currentLevel, 1, 40, 1);
+  const targetLevel = clampNumber(source.targetLevel, 1, 40, 40);
+  const dnaPrice = Math.max(0, toNumber(source.dnaPrice, 0));
+  const foodCosts = normalizeDinoFoodCosts(source.foodCosts);
+  const hasDnaPrice = dnaPrice > 0;
+  const hasFoodCosts = hasDinoFoodCosts(foodCosts);
+  const needsProgress = targetLevel > currentLevel;
+  const copiesNeeded = needsProgress ? Math.max(0, getDinoCopiesForLevel(targetLevel) - getDinoCopiesForLevel(currentLevel)) : 0;
+  const foodNeeded = needsProgress && hasFoodCosts
+    ? Math.max(0, getDinoFoodTotal(targetLevel, foodCosts) - getDinoFoodTotal(currentLevel, foodCosts))
+    : 0;
+
+  return {
+    currentLevel,
+    targetLevel,
+    dnaPrice,
+    foodCosts,
+    hasDnaPrice,
+    hasFoodCosts,
+    copiesNeeded,
+    dnaNeeded: hasDnaPrice ? copiesNeeded * dnaPrice : 0,
+    foodNeeded,
+  };
+}
+
+function getDinoCopiesForLevel(level) {
+  if (level >= 31) return 8;
+  if (level >= 21) return 4;
+  if (level >= 11) return 2;
+  return 1;
+}
+
+function getDinoFoodTotal(level, foodCosts) {
+  const target = clampNumber(level, 1, 40, 1);
+  if (target <= 10) return sumDinoFoodRange(foodCosts, 1, target);
+  if (target <= 20) return (2 * sumDinoFoodRange(foodCosts, 1, 10)) + sumDinoFoodRange(foodCosts, 11, target);
+  if (target <= 30) {
+    return (
+      (4 * sumDinoFoodRange(foodCosts, 1, 10)) +
+      (2 * sumDinoFoodRange(foodCosts, 11, 20)) +
+      sumDinoFoodRange(foodCosts, 21, target)
+    );
+  }
+  return (
+    (8 * sumDinoFoodRange(foodCosts, 1, 10)) +
+    (4 * sumDinoFoodRange(foodCosts, 11, 20)) +
+    (2 * sumDinoFoodRange(foodCosts, 21, 30)) +
+    sumDinoFoodRange(foodCosts, 31, target)
+  );
+}
+
+function sumDinoFoodRange(foodCosts, startLevel, targetLevel) {
+  let total = 0;
+  for (let level = startLevel; level < targetLevel; level += 1) {
+    total += Math.max(0, toNumber(foodCosts[level], 0));
+  }
+  return total;
+}
+
+function normalizeDinoFoodCosts(value) {
+  let source = value;
+  if (typeof source === "string") {
+    try {
+      source = source ? JSON.parse(source) : {};
+    } catch {
+      source = {};
+    }
+  }
+  if (!source || typeof source !== "object") return {};
+
+  return Object.entries(source).reduce((costs, [level, cost]) => {
+    const normalizedLevel = Number(level);
+    const normalizedCost = Math.max(0, toNumber(cost, 0));
+    if (Number.isInteger(normalizedLevel) && normalizedLevel >= 1 && normalizedLevel <= 39 && normalizedCost > 0) {
+      costs[normalizedLevel] = normalizedCost;
+    }
+    return costs;
+  }, {});
+}
+
+function serializeDinoFoodCosts(value) {
+  const costs = normalizeDinoFoodCosts(value);
+  return hasDinoFoodCosts(costs) ? JSON.stringify(costs) : "";
+}
+
+function hasDinoFoodCosts(value) {
+  return Object.keys(normalizeDinoFoodCosts(value)).length > 0;
+}
+
 function renderDinoWikiResult(data, options = {}) {
   const panel = $("#dinoWikiResult");
   if (!data) {
@@ -1533,6 +1688,7 @@ function renderDinoWikiResult(data, options = {}) {
     data.wikiRarity ? `Raridade: ${data.wikiRarity}` : "",
     data.dnaPrice ? `Preço: ${formatNumber(data.dnaPrice)} DNA` : data.buyPriceText ? `Preço: ${data.buyPriceText}` : "",
     data.incubationTime ? `Incubação: ${data.incubationTime}` : "",
+    hasDinoFoodCosts(data.foodCosts) ? "Comida: tabela da wiki" : "",
     data.health40 ? `Vida 40: ${data.health40}` : "",
     data.damage40 ? `Dano 40: ${data.damage40}` : "",
     data.coinsPerMinute ? `Moedas/min: ${data.coinsPerMinute}` : "",
@@ -1582,7 +1738,8 @@ function applyDinoWikiDataToForm(data) {
   form.elements.name.value = data.title || form.elements.name.value;
   if (data.classType) form.elements.classType.value = data.classType;
   if (data.rarity) form.elements.rarity.value = data.rarity;
-  if (data.dnaPrice) form.elements.dnaNeeded.value = data.dnaPrice;
+  form.elements.dnaPrice.value = data.dnaPrice || 0;
+  form.elements.foodCosts.value = serializeDinoFoodCosts(data.foodCosts);
   if (!form.elements.notes.value && data.description) form.elements.notes.value = data.description;
 
   form.elements.wikiTitle.value = data.title || "";
@@ -1597,6 +1754,7 @@ function applyDinoWikiDataToForm(data) {
   form.elements.damage40.value = data.damage40 || "";
   form.elements.coinsPerMinute.value = data.coinsPerMinute || "";
   form.elements.tags.value = formTagsValue([...parseTags(form.elements.tags.value), ...data.tags]);
+  updateDinoResourceFields(form);
 }
 
 function getDinoWikiDataFromDino(dino) {
@@ -1608,6 +1766,8 @@ function getDinoWikiDataFromDino(dino) {
     classType: dino.classType,
     wikiRarity: dino.wikiRarity,
     rarity: dino.rarity,
+    dnaPrice: dino.dnaPrice,
+    foodCosts: dino.foodCosts,
     incubationTime: dino.incubationTime,
     parents: dino.parents,
     hybrids: dino.hybrids,

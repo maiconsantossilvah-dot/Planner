@@ -67,6 +67,7 @@ Quando encontrar uma página de criatura, ele mostra uma prévia e pode preenche
 - vida no nível 40
 - dano no nível 40
 - moedas por minuto
+- calculo automatico de DNA e comida para chegar ao nivel desejado
 - imagem e link da fonte
 
 ## Arquivos

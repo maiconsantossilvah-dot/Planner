@@ -741,6 +741,8 @@
     <dialog id="dinoDialog" class="app-dialog">
       <form id="dinoForm" class="dialog-card">
         <input name="id" type="hidden" />
+        <input name="dnaPrice" type="hidden" />
+        <input name="foodCosts" type="hidden" />
         <input name="wikiTitle" type="hidden" />
         <input name="wikiUrl" type="hidden" />
         <input name="wikiImageUrl" type="hidden" />
@@ -813,11 +815,11 @@
         <div class="form-row two-cols">
           <label>
             <span>DNA necessário</span>
-            <input name="dnaNeeded" type="number" min="0" value="0" />
+            <input name="dnaNeeded" type="number" min="0" value="0" readonly />
           </label>
           <label>
             <span>Comida necessária</span>
-            <input name="foodNeeded" type="number" min="0" value="0" />
+            <input name="foodNeeded" type="number" min="0" value="0" readonly />
           </label>
         </div>
         <label>
