@@ -1,4 +1,6 @@
 const STORAGE_KEY = "jurassic-planner-v1";
+const AUTO_BACKUP_KEY = "jurassic-planner-auto-backup-v2";
+const SCHEMA_VERSION = 2;
 
 const categoryLabels = {
   dino: "Dinossauro",
@@ -27,6 +29,12 @@ const missionStatusLabels = {
   done: "Concluída",
 };
 
+const recurrenceLabels = {
+  none: "Única",
+  daily: "Diária",
+  weekly: "Semanal",
+};
+
 const timelineTypeLabels = {
   achievement: "Conquista",
   mission: "Missão",
@@ -38,9 +46,14 @@ const timelineTypeLabels = {
 };
 
 let state = hydrateState(loadStoredState());
+let pendingImportState = null;
 let activeView = "dashboard";
 let toastTimer = 0;
-let previewUrl = "";
+let previewUrls = [];
+let viewerState = {
+  itemId: "",
+  imageIndex: 0,
+};
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
@@ -69,12 +82,31 @@ function bindEvents() {
   $("#newTaskButton").addEventListener("click", () => openTaskDialog());
   $("#newTaskFromDashboard").addEventListener("click", () => openTaskDialog());
   $("#newMissionButton").addEventListener("click", () => openMissionDialog());
+  $("#resetRecurringButton").addEventListener("click", resetRecurringTasks);
+  $("#resetRecurringFromTasks").addEventListener("click", resetRecurringTasks);
+  $("#cancelTimelineEdit").addEventListener("click", resetTimelineForm);
+  $("#testCloudinaryButton").addEventListener("click", testCloudinary);
   $("#exportButton").addEventListener("click", exportBackup);
   $("#importButton").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", importBackup);
+  $("#confirmImportButton").addEventListener("click", confirmImportBackup);
+  $("#clearLocalImagesButton").addEventListener("click", clearLocalImages);
   $("#clearDataButton").addEventListener("click", clearAllData);
+  $("#prevImageButton").addEventListener("click", () => moveImageViewer(-1));
+  $("#nextImageButton").addEventListener("click", () => moveImageViewer(1));
 
-  ["taskStatusFilter", "taskCategoryFilter", "missionStatusFilter", "timelineTypeFilter"].forEach((id) => {
+  [
+    "taskStatusFilter",
+    "taskCategoryFilter",
+    "taskDateFilter",
+    "missionStatusFilter",
+    "missionCategoryFilter",
+    "timelineTypeFilter",
+    "timelineMissionFilter",
+    "timelineSort",
+    "timelineDateFrom",
+    "timelineDateTo",
+  ].forEach((id) => {
     $(`#${id}`).addEventListener("change", renderAll);
   });
 
@@ -93,7 +125,7 @@ function handleDocumentClick(event) {
   const actionButton = event.target.closest("[data-action]");
   if (!actionButton) return;
 
-  const { action, id, missionId, stepId } = actionButton.dataset;
+  const { action, id, missionId, stepId, imageId } = actionButton.dataset;
 
   if (action === "toggle-task") toggleTask(id);
   if (action === "edit-task") openTaskDialog(getTask(id));
@@ -101,8 +133,13 @@ function handleDocumentClick(event) {
   if (action === "edit-mission") openMissionDialog(getMission(id));
   if (action === "delete-mission") deleteMission(id);
   if (action === "delete-step") deleteMissionStep(missionId, stepId);
+  if (action === "move-step-up") moveMissionStep(missionId, stepId, -1);
+  if (action === "move-step-down") moveMissionStep(missionId, stepId, 1);
+  if (action === "edit-timeline") openTimelineForEdit(id);
   if (action === "delete-timeline") deleteTimelineItem(id);
-  if (action === "copy-image-url") copyImageUrl(id);
+  if (action === "open-image") openImageViewer(id, imageId);
+  if (action === "copy-image-url") copyImageUrl(id, imageId);
+  if (action === "delete-timeline-image") deleteTimelineImage(id, imageId);
 }
 
 function handleDocumentChange(event) {
@@ -116,9 +153,9 @@ function handleInlineSubmit(event) {
   if (!stepForm) return;
   event.preventDefault();
   const input = stepForm.querySelector("input");
-  const text = input.value.trim();
-  if (!text) return;
-  addMissionStep(stepForm.dataset.missionId, text);
+  const parsed = parseStepLine(input.value.trim());
+  if (!parsed.text) return;
+  addMissionStep(stepForm.dataset.missionId, parsed.text, parsed.note);
   input.value = "";
 }
 
@@ -135,6 +172,7 @@ function switchView(view) {
 
 function createEmptyState() {
   return {
+    schemaVersion: SCHEMA_VERSION,
     tasks: [],
     missions: [],
     timeline: [],
@@ -142,6 +180,9 @@ function createEmptyState() {
       cloudName: "",
       uploadPreset: "",
       folder: "jurassic-planner",
+      cloudinaryStatus: "not-configured",
+      cloudinaryMessage: "Preencha os campos e faça um teste de envio.",
+      testedAt: "",
     },
   };
 }
@@ -157,28 +198,147 @@ function loadStoredState() {
 }
 
 function hydrateState(value) {
+  const source = value?.data && value?.app === "jurassic-planner" ? value.data : value;
   const base = createEmptyState();
-  return {
+  const hydrated = {
     ...base,
-    ...value,
-    tasks: Array.isArray(value?.tasks) ? value.tasks : [],
-    missions: Array.isArray(value?.missions) ? value.missions : [],
-    timeline: Array.isArray(value?.timeline) ? value.timeline : [],
+    ...(source || {}),
+    schemaVersion: SCHEMA_VERSION,
+    tasks: Array.isArray(source?.tasks) ? source.tasks.map(hydrateTask) : [],
+    missions: Array.isArray(source?.missions) ? source.missions.map(hydrateMission) : [],
+    timeline: Array.isArray(source?.timeline) ? source.timeline.map(hydrateTimelineItem) : [],
     settings: {
       ...base.settings,
-      ...(value?.settings || {}),
+      ...(source?.settings || {}),
     },
+  };
+
+  if (!isCloudinaryReady(hydrated.settings)) {
+    hydrated.settings.cloudinaryStatus = "not-configured";
+  }
+
+  hydrated.missions.forEach(autoUpdateMissionStatus);
+  return hydrated;
+}
+
+function hydrateTask(task) {
+  return {
+    id: task.id || createId(),
+    title: task.title || "Tarefa sem título",
+    description: task.description || "",
+    status: task.status || "pending",
+    priority: task.priority || "medium",
+    category: task.category || "other",
+    dueDate: task.dueDate || "",
+    recurrence: task.recurrence || "none",
+    completedAt: task.completedAt || "",
+    createdAt: task.createdAt || new Date().toISOString(),
+    updatedAt: task.updatedAt || "",
+  };
+}
+
+function hydrateMission(mission) {
+  const steps = Array.isArray(mission.steps)
+    ? mission.steps.map((step, index) => ({
+        id: step.id || createId(),
+        text: step.text || `Etapa ${index + 1}`,
+        note: step.note || "",
+        done: Boolean(step.done),
+        order: Number.isFinite(step.order) ? step.order : index,
+      }))
+    : [];
+
+  return {
+    id: mission.id || createId(),
+    name: mission.name || "Missão sem nome",
+    description: mission.description || "",
+    status: mission.status || "planned",
+    priority: mission.priority || "medium",
+    category: mission.category || "other",
+    dueDate: mission.dueDate || "",
+    steps,
+    createdAt: mission.createdAt || new Date().toISOString(),
+    updatedAt: mission.updatedAt || "",
+    completedAt: mission.completedAt || "",
+  };
+}
+
+function hydrateTimelineItem(item) {
+  const legacyImage = item.imageUrl
+    ? [
+        {
+          id: createId(),
+          url: item.imageUrl,
+          publicId: item.publicId || "",
+          source: item.source || guessImageSource(item.imageUrl),
+          width: item.width || 0,
+          height: item.height || 0,
+          createdAt: item.createdAt || new Date().toISOString(),
+        },
+      ]
+    : [];
+
+  return {
+    id: item.id || createId(),
+    title: item.title || "Registro sem título",
+    description: item.description || "",
+    type: item.type || "achievement",
+    date: item.date || todayIso(),
+    missionId: item.missionId || "",
+    taskId: item.taskId || "",
+    images: Array.isArray(item.images) ? item.images.map(hydrateImage) : legacyImage,
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || "",
+  };
+}
+
+function hydrateImage(image) {
+  return {
+    id: image.id || createId(),
+    url: image.url || "",
+    publicId: image.publicId || "",
+    source: image.source || guessImageSource(image.url),
+    width: image.width || 0,
+    height: image.height || 0,
+    createdAt: image.createdAt || new Date().toISOString(),
   };
 }
 
 function saveState() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    writeAutoBackup();
     return true;
   } catch (error) {
     console.error("Falha ao salvar.", error);
-    showToast("O armazenamento local ficou cheio. Configure o Cloudinary ou exporte um backup.");
+    showToast("O armazenamento local ficou cheio. Exporte um backup e limpe prints locais.");
     return false;
+  }
+}
+
+function writeAutoBackup() {
+  try {
+    const payload = getBackupPayload();
+    const raw = JSON.stringify(payload);
+    if (raw.length < 1800000) {
+      localStorage.setItem(AUTO_BACKUP_KEY, raw);
+    } else {
+      localStorage.setItem(
+        AUTO_BACKUP_KEY,
+        JSON.stringify({
+          app: "jurassic-planner",
+          schemaVersion: SCHEMA_VERSION,
+          exportedAt: new Date().toISOString(),
+          skippedImages: true,
+          data: {
+            ...state,
+            timeline: state.timeline.map((item) => ({ ...item, images: item.images.filter((image) => image.source === "cloudinary") })),
+          },
+        }),
+      );
+    }
+  } catch (error) {
+    console.warn("Backup automático ignorado.", error);
   }
 }
 
@@ -196,26 +356,37 @@ function renderAll() {
   renderTimeline();
   renderTimelineMissionOptions();
   fillSettingsForm();
+  renderCloudinaryStatus();
+  renderBackupStatus();
   refreshIcons();
 }
 
 function renderHeaderStatus() {
   const badge = $("#syncBadge");
-  const ready = isCloudinaryReady();
-  badge.textContent = ready ? "Cloudinary pronto" : "Modo local";
-  badge.classList.toggle("is-cloud", ready);
+  const status = state.settings.cloudinaryStatus;
+  badge.classList.remove("is-cloud", "is-error");
+
+  if (status === "ready") {
+    badge.textContent = "Cloudinary OK";
+    badge.classList.add("is-cloud");
+  } else if (status === "error") {
+    badge.textContent = "Cloudinary com erro";
+    badge.classList.add("is-error");
+  } else {
+    badge.textContent = "Modo local";
+  }
 }
 
 function renderDashboard() {
   const openTasks = state.tasks.filter((task) => task.status !== "done");
   const activeMissions = state.missions.filter((mission) => mission.status !== "done");
-  const prints = state.timeline.filter((item) => item.imageUrl);
-  const highPriority = state.tasks.filter((task) => task.priority === "high" && task.status !== "done");
+  const printCount = state.timeline.reduce((total, item) => total + getTimelineImages(item).length, 0);
+  const overdueTasks = state.tasks.filter(isOverdue);
 
   $("#openTaskCount").textContent = openTasks.length;
   $("#activeMissionCount").textContent = activeMissions.length;
-  $("#printCount").textContent = prints.length;
-  $("#highPriorityCount").textContent = highPriority.length;
+  $("#printCount").textContent = printCount;
+  $("#overdueTaskCount").textContent = overdueTasks.length;
 
   const dashboardTasks = [...openTasks].sort(sortTasks).slice(0, 5);
   $("#dashboardTaskList").innerHTML = dashboardTasks.length
@@ -227,7 +398,7 @@ function renderDashboard() {
     ? dashboardMissions.map(renderCompactMission).join("")
     : emptyState("flag", "Sem missões em andamento");
 
-  const recentPrints = prints.slice(0, 4);
+  const recentPrints = state.timeline.flatMap((item) => getTimelineImages(item).map((image) => ({ item, image }))).slice(0, 4);
   $("#dashboardTimelineList").innerHTML = recentPrints.length
     ? recentPrints.map(renderMiniPrint).join("")
     : emptyState("images", "Sem prints salvos");
@@ -237,10 +408,18 @@ function renderTasks() {
   const list = $("#taskList");
   const statusFilter = $("#taskStatusFilter").value;
   const categoryFilter = $("#taskCategoryFilter").value;
+  const dateFilter = $("#taskDateFilter").value;
+
   const tasks = state.tasks
     .filter((task) => statusFilter === "all" || task.status === statusFilter)
     .filter((task) => categoryFilter === "all" || task.category === categoryFilter)
-    .filter((task) => matchesSearch([task.title, task.description, categoryLabels[task.category], taskStatusLabels[task.status]]))
+    .filter((task) => {
+      if (dateFilter === "today") return isDueToday(task);
+      if (dateFilter === "overdue") return isOverdue(task);
+      if (dateFilter === "recurring") return task.recurrence && task.recurrence !== "none";
+      return true;
+    })
+    .filter((task) => matchesSearch([task.title, task.description, categoryLabels[task.category], taskStatusLabels[task.status], recurrenceLabels[task.recurrence]]))
     .sort(sortTasks);
 
   list.innerHTML = tasks.length ? tasks.map(renderTaskCard).join("") : emptyState("clipboard-list", "Nenhuma tarefa encontrada");
@@ -249,11 +428,13 @@ function renderTasks() {
 function renderMissions() {
   const list = $("#missionList");
   const statusFilter = $("#missionStatusFilter").value;
+  const categoryFilter = $("#missionCategoryFilter").value;
   const missions = state.missions
     .filter((mission) => statusFilter === "all" || mission.status === statusFilter)
+    .filter((mission) => categoryFilter === "all" || mission.category === categoryFilter)
     .filter((mission) => {
-      const stepText = (mission.steps || []).map((step) => step.text).join(" ");
-      return matchesSearch([mission.name, mission.description, missionStatusLabels[mission.status], stepText]);
+      const stepText = normalizeMissionSteps(mission).map((step) => `${step.text} ${step.note}`).join(" ");
+      return matchesSearch([mission.name, mission.description, missionStatusLabels[mission.status], categoryLabels[mission.category], stepText]);
     })
     .sort(sortMissions);
 
@@ -263,33 +444,47 @@ function renderMissions() {
 function renderTimeline() {
   const list = $("#timelineList");
   const typeFilter = $("#timelineTypeFilter").value;
+  const missionFilter = $("#timelineMissionFilter").value;
+  const dateFrom = $("#timelineDateFrom").value;
+  const dateTo = $("#timelineDateTo").value;
+  const sort = $("#timelineSort").value;
+
   const items = state.timeline
     .filter((item) => typeFilter === "all" || item.type === typeFilter)
+    .filter((item) => missionFilter === "all" || item.missionId === missionFilter)
+    .filter((item) => !dateFrom || item.date >= dateFrom)
+    .filter((item) => !dateTo || item.date <= dateTo)
     .filter((item) => {
       const mission = item.missionId ? getMission(item.missionId) : null;
       return matchesSearch([item.title, item.description, timelineTypeLabels[item.type], mission?.name]);
     })
-    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    .sort((a, b) => (sort === "asc" ? (a.date || "").localeCompare(b.date || "") : (b.date || "").localeCompare(a.date || "")));
 
   list.innerHTML = items.length ? items.map(renderTimelineCard).join("") : emptyState("images", "Nenhum registro encontrado");
 }
 
 function renderTimelineMissionOptions() {
-  const select = $("#timelineMissionSelect");
-  const currentValue = select.value;
-  select.innerHTML = `<option value="">Sem ligação</option>${state.missions
-    .map((mission) => `<option value="${escapeHtml(mission.id)}">${escapeHtml(mission.name)}</option>`)
-    .join("")}`;
-  select.value = currentValue;
+  const formSelect = $("#timelineMissionSelect");
+  const filterSelect = $("#timelineMissionFilter");
+  const formValue = formSelect.value;
+  const filterValue = filterSelect.value;
+  const options = state.missions.map((mission) => `<option value="${escapeHtml(mission.id)}">${escapeHtml(mission.name)}</option>`).join("");
+
+  formSelect.innerHTML = `<option value="">Sem ligação</option>${options}`;
+  filterSelect.innerHTML = `<option value="all">Todas as missões</option>${options}`;
+  formSelect.value = state.missions.some((mission) => mission.id === formValue) ? formValue : "";
+  filterSelect.value = state.missions.some((mission) => mission.id === filterValue) ? filterValue : "all";
 }
 
 function renderTaskCard(task) {
   const done = task.status === "done";
   const description = task.description ? `<p class="item-description">${escapeHtml(task.description)}</p>` : "";
-  const dueDate = task.dueDate ? `<span class="tag">${escapeHtml(formatDate(task.dueDate))}</span>` : "";
+  const dueDate = task.dueDate ? `<span class="tag ${isOverdue(task) ? "tag-danger" : ""}">${escapeHtml(formatDate(task.dueDate))}</span>` : "";
+  const recurrence = task.recurrence && task.recurrence !== "none" ? `<span class="tag tag-recurring">${escapeHtml(recurrenceLabels[task.recurrence])}</span>` : "";
+  const overdueClass = isOverdue(task) ? "is-overdue" : "";
 
   return `
-    <article class="task-card">
+    <article class="task-card ${overdueClass}">
       <button class="status-toggle ${done ? "is-done" : ""}" type="button" data-action="toggle-task" data-id="${escapeHtml(task.id)}" title="${done ? "Reabrir" : "Concluir"}">
         <i data-lucide="${done ? "check" : "circle"}"></i>
       </button>
@@ -303,6 +498,8 @@ function renderTaskCard(task) {
         <div class="meta-row">
           <span class="tag">${escapeHtml(categoryLabels[task.category] || task.category)}</span>
           ${dueDate}
+          ${recurrence}
+          ${task.completedAt ? `<span class="status-pill">Concluída ${escapeHtml(formatDateTime(task.completedAt))}</span>` : ""}
         </div>
       </div>
       <div class="card-actions">
@@ -319,12 +516,16 @@ function renderTaskCard(task) {
 
 function renderMissionCard(mission) {
   const progress = getMissionProgress(mission);
-  const steps = Array.isArray(mission.steps) ? mission.steps : [];
-  const dueDate = mission.dueDate ? `<span class="tag">${escapeHtml(formatDate(mission.dueDate))}</span>` : "";
+  const steps = normalizeMissionSteps(mission);
+  const linkedImages = getLinkedTimelineImages(mission.id);
+  const dueDate = mission.dueDate ? `<span class="tag ${isMissionOverdue(mission) ? "tag-danger" : ""}">${escapeHtml(formatDate(mission.dueDate))}</span>` : "";
   const description = mission.description ? `<p class="mission-description">${escapeHtml(mission.description)}</p>` : "";
   const stepList = steps.length
-    ? `<ul class="step-list">${steps.map((step) => renderMissionStep(mission.id, step)).join("")}</ul>`
+    ? `<ul class="step-list">${steps.map((step, index) => renderMissionStep(mission.id, step, index, steps.length)).join("")}</ul>`
     : `<p class="item-description">Sem etapas</p>`;
+  const prints = linkedImages.length
+    ? `<div class="linked-print-strip">${linkedImages.slice(0, 6).map(renderLinkedPrint).join("")}</div>`
+    : "";
 
   return `
     <article class="mission-card">
@@ -333,6 +534,8 @@ function renderMissionCard(mission) {
           <div class="item-title-row">
             <h3>${escapeHtml(mission.name)}</h3>
             <span class="status-pill status-${escapeHtml(mission.status)}">${escapeHtml(missionStatusLabels[mission.status] || mission.status)}</span>
+            <span class="priority-pill priority-${escapeHtml(mission.priority)}">${escapeHtml(priorityLabels[mission.priority] || mission.priority)}</span>
+            <span class="tag">${escapeHtml(categoryLabels[mission.category] || mission.category)}</span>
             ${dueDate}
           </div>
           ${description}
@@ -351,44 +554,62 @@ function renderMissionCard(mission) {
       </div>
       ${stepList}
       <form class="add-step-form" data-mission-id="${escapeHtml(mission.id)}">
-        <input type="text" placeholder="Nova etapa" autocomplete="off" />
+        <input type="text" placeholder="Nova etapa | nota opcional" autocomplete="off" />
         <button class="secondary-button" type="submit" title="Adicionar etapa">
           <i data-lucide="plus"></i>
           <span>Etapa</span>
         </button>
       </form>
+      ${prints}
     </article>
   `;
 }
 
-function renderMissionStep(missionId, step) {
+function renderMissionStep(missionId, step, index, total) {
+  const note = step.note ? `<small>${escapeHtml(step.note)}</small>` : "";
   return `
     <li class="${step.done ? "is-done" : ""}">
       <input type="checkbox" ${step.done ? "checked" : ""} data-action="toggle-step" data-mission-id="${escapeHtml(missionId)}" data-step-id="${escapeHtml(step.id)}" aria-label="Concluir etapa" />
-      <span>${escapeHtml(step.text)}</span>
-      <button class="icon-button" type="button" data-action="delete-step" data-mission-id="${escapeHtml(missionId)}" data-step-id="${escapeHtml(step.id)}" title="Apagar etapa">
-        <i data-lucide="x"></i>
-      </button>
+      <div class="step-copy">
+        <span>${escapeHtml(step.text)}</span>
+        ${note}
+      </div>
+      <div class="step-actions">
+        <button class="icon-button" type="button" data-action="move-step-up" data-mission-id="${escapeHtml(missionId)}" data-step-id="${escapeHtml(step.id)}" title="Subir etapa" ${index === 0 ? "disabled" : ""}>
+          <i data-lucide="chevron-up"></i>
+        </button>
+        <button class="icon-button" type="button" data-action="move-step-down" data-mission-id="${escapeHtml(missionId)}" data-step-id="${escapeHtml(step.id)}" title="Descer etapa" ${index === total - 1 ? "disabled" : ""}>
+          <i data-lucide="chevron-down"></i>
+        </button>
+        <button class="icon-button" type="button" data-action="delete-step" data-mission-id="${escapeHtml(missionId)}" data-step-id="${escapeHtml(step.id)}" title="Apagar etapa">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
     </li>
   `;
 }
 
 function renderTimelineCard(item) {
   const mission = item.missionId ? getMission(item.missionId) : null;
-  const imageUrl = safeImageUrl(item.imageUrl);
-  const media = imageUrl
-    ? `<a class="timeline-media" href="${escapeHtml(imageUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.title)}" loading="lazy" /></a>`
-    : `<div class="timeline-media"><i data-lucide="image"></i></div>`;
+  const images = getTimelineImages(item);
+  const firstImage = images[0];
+  const media = firstImage
+    ? `<button class="timeline-media" type="button" data-action="open-image" data-id="${escapeHtml(item.id)}" data-image-id="${escapeHtml(firstImage.id)}"><img src="${escapeHtml(firstImage.url)}" alt="${escapeHtml(item.title)}" loading="lazy" /></button>`
+    : `<div class="timeline-media no-image"><i data-lucide="image"></i><span>Registro sem print</span></div>`;
+  const thumbs = images.length > 1 ? `<div class="timeline-thumbs">${images.map((image) => renderTimelineThumb(item.id, image)).join("")}</div>` : "";
   const description = item.description ? `<p>${escapeHtml(item.description)}</p>` : "";
-  const source = item.source === "cloudinary" ? "Cloudinary" : item.source === "local" ? "Local" : "Sem imagem";
-  const sourceClass = item.source === "cloudinary" ? "source-cloudinary" : "source-local";
-  const copyButton = imageUrl
-    ? `<button class="icon-button" type="button" data-action="copy-image-url" data-id="${escapeHtml(item.id)}" title="Copiar link"><i data-lucide="link"></i></button>`
+  const source = images.some((image) => image.source === "cloudinary") ? "Cloudinary" : images.length ? "Local" : "Sem imagem";
+  const sourceClass = source === "Cloudinary" ? "source-cloudinary" : "source-local";
+  const copyButton = firstImage
+    ? `<button class="icon-button" type="button" data-action="copy-image-url" data-id="${escapeHtml(item.id)}" data-image-id="${escapeHtml(firstImage.id)}" title="Copiar link"><i data-lucide="link"></i></button>`
     : "";
 
   return `
     <article class="timeline-card">
-      ${media}
+      <div>
+        ${media}
+        ${thumbs}
+      </div>
       <div class="timeline-content">
         <div class="item-title-row">
           <h3>${escapeHtml(item.title)}</h3>
@@ -399,10 +620,15 @@ function renderTimelineCard(item) {
           <span class="status-pill">${escapeHtml(formatDate(item.date))}</span>
           ${mission ? `<span class="tag">${escapeHtml(mission.name)}</span>` : ""}
           <span class="source-pill ${sourceClass}">${escapeHtml(source)}</span>
+          ${images.length ? `<span class="status-pill">${images.length} print${images.length > 1 ? "s" : ""}</span>` : ""}
         </div>
       </div>
       <div class="card-actions">
         ${copyButton}
+        <button class="icon-button" type="button" data-action="edit-timeline" data-id="${escapeHtml(item.id)}" title="Editar">
+          <i data-lucide="pencil"></i>
+        </button>
+        ${images.length ? `<button class="icon-button" type="button" data-action="delete-timeline-image" data-id="${escapeHtml(item.id)}" data-image-id="${escapeHtml(firstImage.id)}" title="Remover print principal"><i data-lucide="image-off"></i></button>` : ""}
         <button class="icon-button" type="button" data-action="delete-timeline" data-id="${escapeHtml(item.id)}" title="Apagar">
           <i data-lucide="trash-2"></i>
         </button>
@@ -411,11 +637,29 @@ function renderTimelineCard(item) {
   `;
 }
 
-function renderCompactTask(task) {
+function renderTimelineThumb(itemId, image) {
   return `
-    <article class="compact-item">
+    <button type="button" data-action="open-image" data-id="${escapeHtml(itemId)}" data-image-id="${escapeHtml(image.id)}" title="Abrir print">
+      <img src="${escapeHtml(image.url)}" alt="" loading="lazy" />
+    </button>
+  `;
+}
+
+function renderLinkedPrint(entry) {
+  return `
+    <button type="button" data-action="open-image" data-id="${escapeHtml(entry.item.id)}" data-image-id="${escapeHtml(entry.image.id)}" title="${escapeHtml(entry.item.title)}">
+      <img src="${escapeHtml(entry.image.url)}" alt="" loading="lazy" />
+    </button>
+  `;
+}
+
+function renderCompactTask(task) {
+  const date = task.dueDate ? ` · ${formatDate(task.dueDate)}` : "";
+  const recurrence = task.recurrence !== "none" ? ` · ${recurrenceLabels[task.recurrence]}` : "";
+  return `
+    <article class="compact-item ${isOverdue(task) ? "is-overdue" : ""}">
       <strong>${escapeHtml(task.title)}</strong>
-      <span>${escapeHtml(categoryLabels[task.category] || task.category)} · ${escapeHtml(priorityLabels[task.priority] || task.priority)}${task.dueDate ? ` · ${escapeHtml(formatDate(task.dueDate))}` : ""}</span>
+      <span>${escapeHtml(categoryLabels[task.category] || task.category)} · ${escapeHtml(priorityLabels[task.priority] || task.priority)}${escapeHtml(date)}${escapeHtml(recurrence)}</span>
     </article>
   `;
 }
@@ -424,16 +668,17 @@ function renderCompactMission(mission) {
   return `
     <article class="compact-item">
       <strong>${escapeHtml(mission.name)}</strong>
-      <span>${getMissionProgress(mission)}% · ${escapeHtml(missionStatusLabels[mission.status] || mission.status)}</span>
+      <span>${getMissionProgress(mission)}% · ${escapeHtml(missionStatusLabels[mission.status] || mission.status)} · ${escapeHtml(priorityLabels[mission.priority] || mission.priority)}</span>
     </article>
   `;
 }
 
-function renderMiniPrint(item) {
-  const imageUrl = safeImageUrl(item.imageUrl);
-  return imageUrl
-    ? `<a class="mini-print" href="${escapeHtml(imageUrl)}" target="_blank" rel="noreferrer" title="${escapeHtml(item.title)}"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.title)}" loading="lazy" /></a>`
-    : `<div class="mini-print"></div>`;
+function renderMiniPrint(entry) {
+  return `
+    <button class="mini-print" type="button" data-action="open-image" data-id="${escapeHtml(entry.item.id)}" data-image-id="${escapeHtml(entry.image.id)}" title="${escapeHtml(entry.item.title)}">
+      <img src="${escapeHtml(entry.image.url)}" alt="${escapeHtml(entry.item.title)}" loading="lazy" />
+    </button>
+  `;
 }
 
 function handleQuickTaskSubmit(event) {
@@ -449,8 +694,11 @@ function handleQuickTaskSubmit(event) {
     status: "pending",
     priority: formData.get("priority") || "medium",
     category: formData.get("category") || "other",
-    dueDate: "",
+    dueDate: formData.get("recurrence") === "none" ? "" : todayIso(),
+    recurrence: formData.get("recurrence") || "none",
+    completedAt: "",
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   });
 
   event.currentTarget.reset();
@@ -462,6 +710,7 @@ function handleTaskSubmit(event) {
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form).entries());
   const id = data.id || createId();
+  const existing = getTask(id);
   const task = {
     id,
     title: String(data.title || "").trim(),
@@ -470,7 +719,9 @@ function handleTaskSubmit(event) {
     priority: data.priority || "medium",
     category: data.category || "other",
     dueDate: data.dueDate || "",
-    createdAt: getTask(id)?.createdAt || new Date().toISOString(),
+    recurrence: data.recurrence || "none",
+    completedAt: data.status === "done" ? existing?.completedAt || new Date().toISOString() : "",
+    createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
@@ -492,14 +743,16 @@ function handleMissionSubmit(event) {
   const existing = getMission(id);
   const steps = String(data.steps || "")
     .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((text, index) => {
-      const previous = existing?.steps?.[index]?.text === text ? existing.steps[index] : existing?.steps?.find((step) => step.text === text);
+    .map((line) => parseStepLine(line.trim()))
+    .filter((step) => step.text)
+    .map((step, index) => {
+      const previous = existing?.steps?.find((oldStep) => normalizeText(oldStep.text) === normalizeText(step.text));
       return {
         id: previous?.id || createId(),
-        text,
+        text: step.text,
+        note: step.note,
         done: Boolean(previous?.done),
+        order: index,
       };
     });
 
@@ -508,13 +761,17 @@ function handleMissionSubmit(event) {
     name: String(data.name || "").trim(),
     description: String(data.description || "").trim(),
     status: data.status || "planned",
+    priority: data.priority || "medium",
+    category: data.category || "other",
     dueDate: data.dueDate || "",
     steps,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    completedAt: existing?.completedAt || "",
   };
 
   if (!mission.name) return;
+  autoUpdateMissionStatus(mission, data.status);
 
   const index = state.missions.findIndex((item) => item.id === id);
   if (index >= 0) state.missions[index] = mission;
@@ -528,55 +785,65 @@ async function handleTimelineSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form).entries());
+  const id = data.id || createId();
+  const existing = getTimelineItem(id);
   const title = String(data.title || "").trim();
-  const file = $("#timelineImage").files[0];
+  const files = Array.from($("#timelineImage").files || []);
   if (!title) return;
 
   const button = $("#saveTimelineButton");
   const label = button.querySelector("span");
   const previousLabel = label.textContent;
+  let saved = false;
   button.disabled = true;
-  label.textContent = "Salvando";
+  label.textContent = files.length ? "Enviando" : "Salvando";
 
   try {
-    let image = { url: "", publicId: "", source: "none" };
-    if (file) image = await saveTimelineImage(file);
+    const uploadedImages = files.length ? await saveTimelineImages(files) : [];
+    const existingImages = existing ? getTimelineImages(existing) : [];
+    const imageMode = data.imageMode || "append";
+    const images = existing && uploadedImages.length && imageMode === "replace" ? uploadedImages : [...existingImages, ...uploadedImages];
 
-    state.timeline.unshift({
-      id: createId(),
+    const item = {
+      id,
       title,
       description: String(data.description || "").trim(),
       type: data.type || "achievement",
       date: data.date || todayIso(),
       missionId: data.missionId || "",
-      imageUrl: image.url,
-      publicId: image.publicId,
-      source: image.source,
-      createdAt: new Date().toISOString(),
-    });
+      taskId: existing?.taskId || "",
+      images,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-    form.reset();
-    setTodayOnTimelineForm();
-    resetImagePreview();
-    saveAndRender(image.source === "cloudinary" ? "Print enviado para Cloudinary." : "Registro salvo.");
+    const index = state.timeline.findIndex((entry) => entry.id === id);
+    if (index >= 0) state.timeline[index] = item;
+    else state.timeline.unshift(item);
+
+    resetTimelineForm();
+    saved = true;
+    saveAndRender(uploadedImages.some((image) => image.source === "cloudinary") ? "Registro salvo com print no Cloudinary." : "Registro salvo.");
   } catch (error) {
     console.error(error);
     showToast("Não consegui salvar esse registro.");
   } finally {
     button.disabled = false;
-    label.textContent = previousLabel;
+    label.textContent = saved ? "Salvar registro" : previousLabel;
     refreshIcons();
   }
 }
 
 function handleSettingsSubmit(event) {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-  state.settings = {
-    cloudName: String(data.cloudName || "").trim(),
-    uploadPreset: String(data.uploadPreset || "").trim(),
-    folder: String(data.folder || "").trim() || "jurassic-planner",
-  };
+  saveSettingsFromForm();
+  if (!isCloudinaryReady()) {
+    state.settings.cloudinaryStatus = "not-configured";
+    state.settings.cloudinaryMessage = "Preencha Cloud name e Upload preset para ativar o envio.";
+  } else if (state.settings.cloudinaryStatus !== "ready") {
+    state.settings.cloudinaryStatus = "not-configured";
+    state.settings.cloudinaryMessage = "Configuração salva. Use o teste para confirmar.";
+  }
   saveAndRender("Configuração salva.");
 }
 
@@ -591,6 +858,7 @@ function openTaskDialog(task = null) {
   form.elements.priority.value = task?.priority || "medium";
   form.elements.category.value = task?.category || "dino";
   form.elements.dueDate.value = task?.dueDate || "";
+  form.elements.recurrence.value = task?.recurrence || "none";
   showDialog("#taskDialog");
 }
 
@@ -602,9 +870,59 @@ function openMissionDialog(mission = null) {
   form.elements.name.value = mission?.name || "";
   form.elements.description.value = mission?.description || "";
   form.elements.status.value = mission?.status || "planned";
+  form.elements.priority.value = mission?.priority || "medium";
+  form.elements.category.value = mission?.category || "dino";
   form.elements.dueDate.value = mission?.dueDate || "";
-  form.elements.steps.value = (mission?.steps || []).map((step) => step.text).join("\n");
+  form.elements.steps.value = normalizeMissionSteps(mission || { steps: [] })
+    .map((step) => (step.note ? `${step.text} | ${step.note}` : step.text))
+    .join("\n");
   showDialog("#missionDialog");
+}
+
+function openTimelineForEdit(id) {
+  const item = getTimelineItem(id);
+  if (!item) return;
+  switchView("timeline");
+  const form = $("#timelineForm");
+  form.reset();
+  form.elements.id.value = item.id;
+  form.elements.title.value = item.title;
+  form.elements.description.value = item.description;
+  form.elements.type.value = item.type;
+  form.elements.date.value = item.date || todayIso();
+  form.elements.missionId.value = item.missionId || "";
+  form.elements.imageMode.value = "append";
+  $("#timelineFormTitle").textContent = "Editar registro";
+  $("#saveTimelineButton span").textContent = "Salvar edição";
+  $("#cancelTimelineEdit").classList.remove("is-hidden");
+  renderExistingImageStrip(item);
+  resetImagePreview(false);
+  $(".upload-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  refreshIcons();
+}
+
+function resetTimelineForm() {
+  const form = $("#timelineForm");
+  form.reset();
+  form.elements.id.value = "";
+  $("#timelineFormTitle").textContent = "Novo registro";
+  $("#saveTimelineButton span").textContent = "Salvar registro";
+  $("#cancelTimelineEdit").classList.add("is-hidden");
+  $("#existingImageStrip").classList.add("is-hidden");
+  $("#existingImageStrip").innerHTML = "";
+  setTodayOnTimelineForm();
+  resetImagePreview();
+}
+
+function renderExistingImageStrip(item) {
+  const images = getTimelineImages(item);
+  const strip = $("#existingImageStrip");
+  strip.classList.toggle("is-hidden", images.length === 0);
+  strip.innerHTML = images.length
+    ? `<span>Prints atuais</span><div>${images
+        .map((image) => `<button type="button" data-action="open-image" data-id="${escapeHtml(item.id)}" data-image-id="${escapeHtml(image.id)}"><img src="${escapeHtml(image.url)}" alt="" /></button>`)
+        .join("")}</div>`
+    : "";
 }
 
 function showDialog(selector) {
@@ -618,8 +936,26 @@ function toggleTask(id) {
   const task = getTask(id);
   if (!task) return;
   task.status = task.status === "done" ? "pending" : "done";
+  task.completedAt = task.status === "done" ? new Date().toISOString() : "";
   task.updatedAt = new Date().toISOString();
   saveAndRender(task.status === "done" ? "Tarefa concluída." : "Tarefa reaberta.");
+}
+
+function resetRecurringTasks() {
+  const recurringTasks = state.tasks.filter((task) => task.recurrence && task.recurrence !== "none" && task.status === "done");
+  if (!recurringTasks.length) {
+    showToast("Nenhuma tarefa recorrente concluída para resetar.");
+    return;
+  }
+
+  recurringTasks.forEach((task) => {
+    task.status = "pending";
+    task.completedAt = "";
+    task.dueDate = todayIso();
+    task.updatedAt = new Date().toISOString();
+  });
+
+  saveAndRender(`${recurringTasks.length} tarefa${recurringTasks.length > 1 ? "s" : ""} recorrente${recurringTasks.length > 1 ? "s" : ""} resetada${recurringTasks.length > 1 ? "s" : ""}.`);
 }
 
 function deleteTask(id) {
@@ -637,10 +973,11 @@ function deleteMission(id) {
   saveAndRender("Missão apagada.");
 }
 
-function addMissionStep(missionId, text) {
+function addMissionStep(missionId, text, note = "") {
   const mission = getMission(missionId);
   if (!mission) return;
-  mission.steps = [...(mission.steps || []), { id: createId(), text, done: false }];
+  const order = normalizeMissionSteps(mission).length;
+  mission.steps = [...(mission.steps || []), { id: createId(), text, note, done: false, order }];
   if (mission.status === "planned") mission.status = "doing";
   mission.updatedAt = new Date().toISOString();
   saveAndRender("Etapa adicionada.");
@@ -651,30 +988,57 @@ function toggleMissionStep(missionId, stepId, done) {
   const step = mission?.steps?.find((item) => item.id === stepId);
   if (!mission || !step) return;
   step.done = done;
-  const progress = getMissionProgress(mission);
-  mission.status = progress === 100 ? "done" : mission.status === "done" ? "doing" : mission.status;
   mission.updatedAt = new Date().toISOString();
+  autoUpdateMissionStatus(mission);
   saveAndRender(done ? "Etapa concluída." : "Etapa reaberta.");
 }
 
 function deleteMissionStep(missionId, stepId) {
   const mission = getMission(missionId);
   if (!mission) return;
-  mission.steps = (mission.steps || []).filter((step) => step.id !== stepId);
+  mission.steps = normalizeMissionSteps(mission)
+    .filter((step) => step.id !== stepId)
+    .map((step, index) => ({ ...step, order: index }));
   mission.updatedAt = new Date().toISOString();
+  autoUpdateMissionStatus(mission);
   saveAndRender("Etapa apagada.");
 }
 
+function moveMissionStep(missionId, stepId, direction) {
+  const mission = getMission(missionId);
+  if (!mission) return;
+  const steps = normalizeMissionSteps(mission);
+  const index = steps.findIndex((step) => step.id === stepId);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= steps.length) return;
+  const [step] = steps.splice(index, 1);
+  steps.splice(nextIndex, 0, step);
+  mission.steps = steps.map((item, order) => ({ ...item, order }));
+  mission.updatedAt = new Date().toISOString();
+  saveAndRender("Etapas reordenadas.");
+}
+
 function deleteTimelineItem(id) {
-  const item = state.timeline.find((entry) => entry.id === id);
+  const item = getTimelineItem(id);
   if (!item || !confirm(`Apagar "${item.title}" da timeline?`)) return;
   state.timeline = state.timeline.filter((entry) => entry.id !== id);
   saveAndRender("Registro apagado.");
 }
 
-async function copyImageUrl(id) {
-  const item = state.timeline.find((entry) => entry.id === id);
-  const imageUrl = safeImageUrl(item?.imageUrl);
+function deleteTimelineImage(id, imageId) {
+  const item = getTimelineItem(id);
+  if (!item) return;
+  const image = getTimelineImages(item).find((entry) => entry.id === imageId);
+  if (!image || !confirm("Remover este print do registro?")) return;
+  item.images = getTimelineImages(item).filter((entry) => entry.id !== imageId);
+  item.updatedAt = new Date().toISOString();
+  saveAndRender("Print removido.");
+}
+
+async function copyImageUrl(id, imageId) {
+  const item = getTimelineItem(id);
+  const image = getTimelineImages(item).find((entry) => entry.id === imageId) || getTimelineImages(item)[0];
+  const imageUrl = safeImageUrl(image?.url);
   if (!imageUrl) return;
   try {
     await navigator.clipboard.writeText(imageUrl);
@@ -685,6 +1049,45 @@ async function copyImageUrl(id) {
   }
 }
 
+function openImageViewer(id, imageId) {
+  const item = getTimelineItem(id);
+  const images = getTimelineImages(item);
+  if (!item || !images.length) return;
+  const index = Math.max(0, images.findIndex((image) => image.id === imageId));
+  viewerState = { itemId: id, imageIndex: index };
+  updateImageViewer();
+  showDialog("#imageViewerDialog");
+}
+
+function moveImageViewer(direction) {
+  const item = getTimelineItem(viewerState.itemId);
+  const images = getTimelineImages(item);
+  if (!images.length) return;
+  viewerState.imageIndex = (viewerState.imageIndex + direction + images.length) % images.length;
+  updateImageViewer();
+}
+
+function updateImageViewer() {
+  const item = getTimelineItem(viewerState.itemId);
+  const images = getTimelineImages(item);
+  const image = images[viewerState.imageIndex];
+  if (!item || !image) return;
+  $("#imageViewerTitle").textContent = item.title;
+  $("#imageViewerImg").src = image.url;
+  $("#imageViewerImg").alt = item.title;
+  $("#imageViewerCount").textContent = `${viewerState.imageIndex + 1} de ${images.length}`;
+  $("#prevImageButton").disabled = images.length < 2;
+  $("#nextImageButton").disabled = images.length < 2;
+}
+
+async function saveTimelineImages(files) {
+  const images = [];
+  for (const file of files) {
+    images.push(await saveTimelineImage(file));
+  }
+  return images.filter((image) => image.url);
+}
+
 async function saveTimelineImage(file) {
   if (isCloudinaryReady()) {
     try {
@@ -692,23 +1095,34 @@ async function saveTimelineImage(file) {
       return await uploadToCloudinary(uploadFile);
     } catch (error) {
       console.warn("Upload Cloudinary falhou.", error);
+      state.settings.cloudinaryStatus = "error";
+      state.settings.cloudinaryMessage = readableCloudinaryError(error);
       showToast("Cloudinary recusou o upload. Salvei o print localmente.");
     }
   }
 
   const localFile = await resizeImage(file, 1400, 0.82);
+  const dimensions = await getImageDimensions(localFile);
   const dataUrl = await blobToDataUrl(localFile);
-  return { url: dataUrl, publicId: "", source: "local" };
+  return {
+    id: createId(),
+    url: dataUrl,
+    publicId: "",
+    source: "local",
+    width: dimensions.width,
+    height: dimensions.height,
+    createdAt: new Date().toISOString(),
+  };
 }
 
-async function uploadToCloudinary(file) {
-  const { cloudName, uploadPreset, folder } = state.settings;
-  const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`;
+async function uploadToCloudinary(file, options = {}) {
+  const settings = options.settings || state.settings;
+  const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(settings.cloudName)}/image/upload`;
   const body = new FormData();
   body.append("file", file);
-  body.append("upload_preset", uploadPreset);
-  if (folder) body.append("folder", folder);
-  body.append("tags", "jurassic-planner");
+  body.append("upload_preset", settings.uploadPreset);
+  if (settings.folder) body.append("folder", options.test ? `${settings.folder}/tests` : settings.folder);
+  body.append("tags", options.test ? "jurassic-planner,test" : "jurassic-planner");
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -722,10 +1136,93 @@ async function uploadToCloudinary(file) {
   }
 
   return {
+    id: createId(),
     url: payload.secure_url,
     publicId: payload.public_id,
     source: "cloudinary",
+    width: payload.width || 0,
+    height: payload.height || 0,
+    createdAt: new Date().toISOString(),
   };
+}
+
+async function testCloudinary() {
+  saveSettingsFromForm();
+  const validation = validateCloudinarySettings(state.settings);
+  if (validation) {
+    state.settings.cloudinaryStatus = "error";
+    state.settings.cloudinaryMessage = validation;
+    saveAndRender(validation);
+    return;
+  }
+
+  const button = $("#testCloudinaryButton");
+  const label = button.querySelector("span");
+  const oldLabel = label.textContent;
+  button.disabled = true;
+  label.textContent = "Testando";
+
+  try {
+    const testFile = await createCloudinaryTestFile();
+    await uploadToCloudinary(testFile, { test: true });
+    state.settings.cloudinaryStatus = "ready";
+    state.settings.cloudinaryMessage = `Teste enviado com sucesso em ${formatDateTime(new Date().toISOString())}.`;
+    state.settings.testedAt = new Date().toISOString();
+    saveAndRender("Cloudinary testado com sucesso.");
+  } catch (error) {
+    state.settings.cloudinaryStatus = "error";
+    state.settings.cloudinaryMessage = readableCloudinaryError(error);
+    saveAndRender(state.settings.cloudinaryMessage);
+  } finally {
+    button.disabled = false;
+    label.textContent = oldLabel;
+    refreshIcons();
+  }
+}
+
+function saveSettingsFromForm() {
+  const data = Object.fromEntries(new FormData($("#settingsForm")).entries());
+  const previous = state.settings;
+  state.settings = {
+    ...previous,
+    cloudName: String(data.cloudName || "").trim(),
+    uploadPreset: String(data.uploadPreset || "").trim(),
+    folder: String(data.folder || "").trim() || "jurassic-planner",
+  };
+}
+
+function validateCloudinarySettings(settings = state.settings) {
+  if (!settings.cloudName || !settings.uploadPreset) {
+    return "Preencha Cloud name e Upload preset antes de testar.";
+  }
+  if (/\s/.test(settings.cloudName) || /\s/.test(settings.uploadPreset)) {
+    return "Cloud name e Upload preset não podem ter espaços.";
+  }
+  return "";
+}
+
+function readableCloudinaryError(error) {
+  const message = String(error?.message || error || "");
+  if (message.toLowerCase().includes("upload preset")) return "Upload preset inválido ou não liberado para upload sem assinatura.";
+  if (message.toLowerCase().includes("cloud name")) return "Cloud name inválido.";
+  if (message.toLowerCase().includes("failed to fetch")) return "Não consegui conectar ao Cloudinary. Confira sua internet.";
+  return message || "Cloudinary recusou o upload.";
+}
+
+function createCloudinaryTestFile() {
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 24;
+    canvas.height = 24;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#101411";
+    context.fillRect(0, 0, 24, 24);
+    context.fillStyle = "#75d96b";
+    context.fillRect(4, 4, 16, 16);
+    context.fillStyle = "#5fd7cf";
+    context.fillRect(9, 9, 10, 10);
+    canvas.toBlob((blob) => resolve(new File([blob], "jurassic-planner-test.png", { type: "image/png" })), "image/png");
+  });
 }
 
 function resizeImage(file, maxSize, quality) {
@@ -787,17 +1284,40 @@ function blobToDataUrl(blob) {
   });
 }
 
+function getImageDimensions(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = () => {
+      const result = { width: image.width, height: image.height };
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: 0, height: 0 });
+    };
+    image.src = url;
+  });
+}
+
 function updateImagePreview() {
-  const file = $("#timelineImage").files[0];
+  const files = Array.from($("#timelineImage").files || []);
   resetImagePreview(false);
-  if (!file) return;
-  previewUrl = URL.createObjectURL(file);
-  $("#imagePreview").innerHTML = `<img src="${escapeHtml(previewUrl)}" alt="Prévia do print" />`;
+  if (!files.length) return;
+
+  previewUrls = files.map((file) => URL.createObjectURL(file));
+  $("#imagePreview").innerHTML = `
+    <div class="preview-stack">
+      ${previewUrls.map((url) => `<img src="${escapeHtml(url)}" alt="Prévia do print" />`).join("")}
+    </div>
+  `;
 }
 
 function resetImagePreview(refresh = true) {
-  if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = "";
+  previewUrls.forEach((url) => URL.revokeObjectURL(url));
+  previewUrls = [];
+  $("#timelineImage").value = "";
   $("#imagePreview").innerHTML = `<i data-lucide="image-plus"></i>`;
   if (refresh) refreshIcons();
 }
@@ -810,8 +1330,34 @@ function fillSettingsForm() {
   form.elements.folder.value = state.settings.folder || "jurassic-planner";
 }
 
+function renderCloudinaryStatus() {
+  const label = $("#cloudinaryStatusLabel");
+  const message = $("#cloudinaryStatusMessage");
+  const status = state.settings.cloudinaryStatus || "not-configured";
+  label.className = `status-pill cloud-status-${status}`;
+  label.textContent = status === "ready" ? "Configurado" : status === "error" ? "Erro no upload" : "Não configurado";
+  message.textContent = state.settings.cloudinaryMessage || "Preencha os campos e faça um teste de envio.";
+  $("#storageModeText").textContent =
+    status === "ready" ? "Dados ficam neste navegador; prints novos podem ir para o Cloudinary." : "Dados e prints sem Cloudinary ficam apenas neste navegador.";
+}
+
+function renderBackupStatus() {
+  try {
+    const raw = localStorage.getItem(AUTO_BACKUP_KEY);
+    if (!raw) {
+      $("#autoBackupText").textContent = "Backup local automático ainda não criado.";
+      return;
+    }
+    const backup = JSON.parse(raw);
+    const suffix = backup.skippedImages ? " sem prints locais grandes" : "";
+    $("#autoBackupText").textContent = `Backup local automático atualizado em ${formatDateTime(backup.exportedAt)}${suffix}.`;
+  } catch {
+    $("#autoBackupText").textContent = "Backup local automático indisponível.";
+  }
+}
+
 function exportBackup() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(getBackupPayload(), null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -821,6 +1367,15 @@ function exportBackup() {
   showToast("Backup exportado.");
 }
 
+function getBackupPayload() {
+  return {
+    app: "jurassic-planner",
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: state,
+  };
+}
+
 function importBackup(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -828,10 +1383,9 @@ function importBackup(event) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const imported = hydrateState(JSON.parse(reader.result));
-      if (!confirm("Importar esse backup e substituir os dados atuais?")) return;
-      state = imported;
-      saveAndRender("Backup importado.");
+      pendingImportState = hydrateState(JSON.parse(reader.result));
+      renderImportPreview(pendingImportState);
+      showDialog("#importPreviewDialog");
     } catch (error) {
       console.error(error);
       showToast("Esse arquivo não parece ser um backup válido.");
@@ -842,9 +1396,57 @@ function importBackup(event) {
   reader.readAsText(file);
 }
 
+function renderImportPreview(imported) {
+  const printCount = imported.timeline.reduce((total, item) => total + getTimelineImages(item).length, 0);
+  $("#importPreviewContent").innerHTML = `
+    <article class="metric metric-green">
+      <span>Tarefas</span>
+      <strong>${imported.tasks.length}</strong>
+    </article>
+    <article class="metric metric-amber">
+      <span>Missões</span>
+      <strong>${imported.missions.length}</strong>
+    </article>
+    <article class="metric metric-cyan">
+      <span>Registros</span>
+      <strong>${imported.timeline.length}</strong>
+    </article>
+    <article class="metric metric-red">
+      <span>Prints</span>
+      <strong>${printCount}</strong>
+    </article>
+  `;
+}
+
+function confirmImportBackup() {
+  if (!pendingImportState) return;
+  state = pendingImportState;
+  pendingImportState = null;
+  $("#importPreviewDialog").close();
+  saveAndRender("Backup importado.");
+}
+
+function clearLocalImages() {
+  const localCount = state.timeline.reduce(
+    (total, item) => total + getTimelineImages(item).filter((image) => image.source === "local" || image.url.startsWith("data:image/")).length,
+    0,
+  );
+  if (!localCount) {
+    showToast("Não há prints locais para limpar.");
+    return;
+  }
+  if (!confirm(`Remover ${localCount} print${localCount > 1 ? "s" : ""} local${localCount > 1 ? "is" : ""}? Prints do Cloudinary ficam salvos.`)) return;
+  state.timeline.forEach((item) => {
+    item.images = getTimelineImages(item).filter((image) => image.source !== "local" && !image.url.startsWith("data:image/"));
+    item.updatedAt = new Date().toISOString();
+  });
+  saveAndRender("Prints locais removidos.");
+}
+
 function clearAllData() {
   if (!confirm("Limpar todos os dados deste navegador?")) return;
   state = createEmptyState();
+  localStorage.removeItem(AUTO_BACKUP_KEY);
   saveAndRender("Dados limpos.");
 }
 
@@ -856,16 +1458,60 @@ function getMission(id) {
   return state.missions.find((mission) => mission.id === id);
 }
 
+function getTimelineItem(id) {
+  return state.timeline.find((item) => item.id === id);
+}
+
+function getTimelineImages(item) {
+  return Array.isArray(item?.images) ? item.images.filter((image) => safeImageUrl(image.url)) : [];
+}
+
+function getLinkedTimelineImages(missionId) {
+  return state.timeline
+    .filter((item) => item.missionId === missionId)
+    .flatMap((item) => getTimelineImages(item).map((image) => ({ item, image })));
+}
+
 function getMissionProgress(mission) {
-  const steps = Array.isArray(mission.steps) ? mission.steps : [];
+  const steps = normalizeMissionSteps(mission);
   if (!steps.length) return mission.status === "done" ? 100 : 0;
   return Math.round((steps.filter((step) => step.done).length / steps.length) * 100);
+}
+
+function autoUpdateMissionStatus(mission, requestedStatus = mission.status) {
+  const steps = normalizeMissionSteps(mission);
+  const progress = getMissionProgress({ ...mission, steps });
+  if (steps.length && progress === 100) {
+    mission.status = "done";
+    mission.completedAt = mission.completedAt || new Date().toISOString();
+    return;
+  }
+  if (requestedStatus === "done" && (!steps.length || progress === 100)) {
+    mission.status = "done";
+    mission.completedAt = mission.completedAt || new Date().toISOString();
+    return;
+  }
+  mission.status = requestedStatus === "done" ? "doing" : requestedStatus;
+  mission.completedAt = "";
+}
+
+function normalizeMissionSteps(mission) {
+  return [...(mission?.steps || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+function parseStepLine(line) {
+  const [text, ...noteParts] = String(line || "").split("|");
+  return {
+    text: text.trim(),
+    note: noteParts.join("|").trim(),
+  };
 }
 
 function sortTasks(a, b) {
   const statusRank = { doing: 0, pending: 1, done: 2 };
   const priorityRank = { high: 0, medium: 1, low: 2 };
   return (
+    Number(isOverdue(b)) - Number(isOverdue(a)) ||
     (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9) ||
     (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) ||
     (a.dueDate || "9999-12-31").localeCompare(b.dueDate || "9999-12-31") ||
@@ -875,15 +1521,29 @@ function sortTasks(a, b) {
 
 function sortMissions(a, b) {
   const statusRank = { doing: 0, planned: 1, done: 2 };
+  const priorityRank = { high: 0, medium: 1, low: 2 };
   return (
     (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9) ||
+    (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) ||
     (a.dueDate || "9999-12-31").localeCompare(b.dueDate || "9999-12-31") ||
     (b.createdAt || "").localeCompare(a.createdAt || "")
   );
 }
 
-function isCloudinaryReady() {
-  return Boolean(state.settings.cloudName && state.settings.uploadPreset);
+function isCloudinaryReady(settings = state.settings) {
+  return Boolean(settings.cloudName && settings.uploadPreset);
+}
+
+function isDueToday(task) {
+  return task.status !== "done" && task.dueDate === todayIso();
+}
+
+function isOverdue(task) {
+  return task.status !== "done" && task.dueDate && task.dueDate < todayIso();
+}
+
+function isMissionOverdue(mission) {
+  return mission.status !== "done" && mission.dueDate && mission.dueDate < todayIso();
 }
 
 function setTodayOnTimelineForm() {
@@ -904,6 +1564,16 @@ function formatDate(value) {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function formatDateTime(value) {
+  if (!value) return "sem data";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function createId() {
@@ -932,6 +1602,13 @@ function safeImageUrl(url) {
   return "";
 }
 
+function guessImageSource(url) {
+  const value = String(url || "");
+  if (value.startsWith("https://res.cloudinary.com/")) return "cloudinary";
+  if (value.startsWith("data:image/")) return "local";
+  return "none";
+}
+
 function emptyState(icon, text) {
   return `
     <div class="empty-state">
@@ -946,7 +1623,7 @@ function showToast(message) {
   window.clearTimeout(toastTimer);
   toast.textContent = message;
   toast.classList.add("is-visible");
-  toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2600);
+  toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 3000);
 }
 
 function refreshIcons() {

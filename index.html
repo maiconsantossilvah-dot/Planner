@@ -22,23 +22,23 @@
         </div>
 
         <nav class="view-tabs" aria-label="Navegação principal">
-          <button class="tab-button is-active" type="button" data-view="dashboard" aria-current="page">
+          <button class="tab-button is-active" type="button" data-view="dashboard" aria-current="page" title="Painel">
             <i data-lucide="layout-dashboard"></i>
             <span>Painel</span>
           </button>
-          <button class="tab-button" type="button" data-view="tasks">
+          <button class="tab-button" type="button" data-view="tasks" title="Tarefas">
             <i data-lucide="check-square"></i>
             <span>Tarefas</span>
           </button>
-          <button class="tab-button" type="button" data-view="missions">
+          <button class="tab-button" type="button" data-view="missions" title="Missões">
             <i data-lucide="flag"></i>
             <span>Missões</span>
           </button>
-          <button class="tab-button" type="button" data-view="timeline">
+          <button class="tab-button" type="button" data-view="timeline" title="Timeline">
             <i data-lucide="images"></i>
             <span>Timeline</span>
           </button>
-          <button class="tab-button" type="button" data-view="settings">
+          <button class="tab-button" type="button" data-view="settings" title="Configurações">
             <i data-lucide="settings"></i>
             <span>Config</span>
           </button>
@@ -57,10 +57,16 @@
               <p class="eyebrow">Visão geral</p>
               <h2>Painel do parque</h2>
             </div>
-            <button id="newTaskFromDashboard" class="primary-button" type="button">
-              <i data-lucide="plus"></i>
-              <span>Nova tarefa</span>
-            </button>
+            <div class="action-row">
+              <button id="resetRecurringButton" class="secondary-button" type="button">
+                <i data-lucide="rotate-cw"></i>
+                <span>Resetar rotina</span>
+              </button>
+              <button id="newTaskFromDashboard" class="primary-button" type="button">
+                <i data-lucide="plus"></i>
+                <span>Nova tarefa</span>
+              </button>
+            </div>
           </div>
 
           <div class="summary-grid" aria-label="Resumo">
@@ -77,8 +83,8 @@
               <strong id="printCount">0</strong>
             </article>
             <article class="metric metric-red">
-              <span>Prioridade alta</span>
-              <strong id="highPriorityCount">0</strong>
+              <span>Atrasadas</span>
+              <strong id="overdueTaskCount">0</strong>
             </article>
           </div>
 
@@ -101,6 +107,11 @@
                   <option value="medium">Média</option>
                   <option value="high">Alta</option>
                   <option value="low">Baixa</option>
+                </select>
+                <select name="recurrence" aria-label="Recorrência">
+                  <option value="none">Única</option>
+                  <option value="daily">Diária</option>
+                  <option value="weekly">Semanal</option>
                 </select>
                 <button class="primary-button" type="submit" title="Adicionar tarefa">
                   <i data-lucide="plus"></i>
@@ -138,10 +149,16 @@
               <p class="eyebrow">Lista</p>
               <h2>Tarefas</h2>
             </div>
-            <button id="newTaskButton" class="primary-button" type="button">
-              <i data-lucide="plus"></i>
-              <span>Nova tarefa</span>
-            </button>
+            <div class="action-row">
+              <button id="resetRecurringFromTasks" class="secondary-button" type="button">
+                <i data-lucide="rotate-cw"></i>
+                <span>Resetar rotina</span>
+              </button>
+              <button id="newTaskButton" class="primary-button" type="button">
+                <i data-lucide="plus"></i>
+                <span>Nova tarefa</span>
+              </button>
+            </div>
           </div>
 
           <div class="filter-bar">
@@ -159,6 +176,12 @@
               <option value="park">Parque</option>
               <option value="resources">Recursos</option>
               <option value="other">Outro</option>
+            </select>
+            <select id="taskDateFilter" aria-label="Filtrar data">
+              <option value="all">Todas as datas</option>
+              <option value="today">Hoje</option>
+              <option value="overdue">Atrasadas</option>
+              <option value="recurring">Recorrentes</option>
             </select>
           </div>
 
@@ -184,6 +207,15 @@
               <option value="doing">Em andamento</option>
               <option value="done">Concluída</option>
             </select>
+            <select id="missionCategoryFilter" aria-label="Filtrar categoria de missão">
+              <option value="all">Todas as categorias</option>
+              <option value="dino">Dinossauro</option>
+              <option value="event">Evento</option>
+              <option value="battle">Batalha</option>
+              <option value="park">Parque</option>
+              <option value="resources">Recursos</option>
+              <option value="other">Outro</option>
+            </select>
           </div>
 
           <div id="missionList" class="mission-list"></div>
@@ -198,15 +230,24 @@
           </div>
 
           <section class="upload-panel">
+            <div class="panel-heading timeline-form-heading">
+              <h3 id="timelineFormTitle">Novo registro</h3>
+              <button id="cancelTimelineEdit" class="secondary-button is-hidden" type="button">
+                <i data-lucide="x"></i>
+                <span>Cancelar edição</span>
+              </button>
+            </div>
             <form id="timelineForm" class="timeline-form">
+              <input name="id" type="hidden" />
               <label class="image-picker" for="timelineImage">
-                <input id="timelineImage" name="image" type="file" accept="image/*" />
+                <input id="timelineImage" name="image" type="file" accept="image/*" multiple />
                 <span id="imagePreview" class="image-preview">
                   <i data-lucide="image-plus"></i>
                 </span>
               </label>
 
               <div class="timeline-fields">
+                <div id="existingImageStrip" class="existing-image-strip is-hidden"></div>
                 <div class="form-row two-cols">
                   <label>
                     <span>Título</span>
@@ -225,7 +266,7 @@
                     </select>
                   </label>
                 </div>
-                <div class="form-row two-cols">
+                <div class="form-row three-cols">
                   <label>
                     <span>Data</span>
                     <input name="date" type="date" />
@@ -234,6 +275,13 @@
                     <span>Missão ligada</span>
                     <select id="timelineMissionSelect" name="missionId">
                       <option value="">Sem ligação</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Imagens ao editar</span>
+                    <select name="imageMode">
+                      <option value="append">Adicionar</option>
+                      <option value="replace">Trocar tudo</option>
                     </select>
                   </label>
                 </div>
@@ -260,6 +308,15 @@
               <option value="park">Parque</option>
               <option value="event">Evento</option>
             </select>
+            <select id="timelineMissionFilter" aria-label="Filtrar por missão">
+              <option value="all">Todas as missões</option>
+            </select>
+            <input id="timelineDateFrom" type="date" aria-label="Data inicial" />
+            <input id="timelineDateTo" type="date" aria-label="Data final" />
+            <select id="timelineSort" aria-label="Ordenar timeline">
+              <option value="desc">Mais recente</option>
+              <option value="asc">Mais antiga</option>
+            </select>
           </div>
 
           <div id="timelineList" class="timeline-list"></div>
@@ -268,13 +325,17 @@
         <section id="settingsView" class="view" data-view-panel="settings">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Cloudinary</p>
+              <p class="eyebrow">Cloudinary e dados</p>
               <h2>Configurações</h2>
             </div>
           </div>
 
           <section class="settings-grid">
             <form id="settingsForm" class="settings-panel">
+              <div class="cloud-status-card">
+                <span id="cloudinaryStatusLabel" class="status-pill">Não configurado</span>
+                <p id="cloudinaryStatusMessage">Preencha os campos e faça um teste de envio.</p>
+              </div>
               <label>
                 <span>Cloud name</span>
                 <input name="cloudName" type="text" autocomplete="off" spellcheck="false" />
@@ -287,16 +348,27 @@
                 <span>Pasta</span>
                 <input name="folder" type="text" autocomplete="off" spellcheck="false" />
               </label>
-              <button class="primary-button" type="submit">
-                <i data-lucide="save"></i>
-                <span>Salvar config</span>
-              </button>
+              <div class="action-row">
+                <button class="primary-button" type="submit">
+                  <i data-lucide="save"></i>
+                  <span>Salvar config</span>
+                </button>
+                <button id="testCloudinaryButton" class="secondary-button" type="button">
+                  <i data-lucide="cloud-upload"></i>
+                  <span>Testar Cloudinary</span>
+                </button>
+              </div>
             </form>
 
             <div class="settings-panel">
               <div class="panel-heading">
                 <h3>Backup</h3>
               </div>
+              <div class="storage-warning">
+                <i data-lucide="hard-drive"></i>
+                <span id="storageModeText">Dados salvos neste navegador.</span>
+              </div>
+              <p id="autoBackupText" class="muted-text">Backup local automático ainda não criado.</p>
               <div class="action-row">
                 <button id="exportButton" class="secondary-button" type="button">
                   <i data-lucide="download"></i>
@@ -306,9 +378,13 @@
                   <i data-lucide="upload"></i>
                   <span>Importar</span>
                 </button>
+                <button id="clearLocalImagesButton" class="secondary-button" type="button">
+                  <i data-lucide="image-off"></i>
+                  <span>Limpar prints locais</span>
+                </button>
                 <button id="clearDataButton" class="danger-button" type="button">
                   <i data-lucide="trash-2"></i>
-                  <span>Limpar</span>
+                  <span>Limpar tudo</span>
                 </button>
               </div>
               <input id="importFile" type="file" accept="application/json" hidden />
@@ -353,7 +429,7 @@
             </select>
           </label>
         </div>
-        <div class="form-row two-cols">
+        <div class="form-row three-cols">
           <label>
             <span>Categoria</span>
             <select name="category">
@@ -368,6 +444,14 @@
           <label>
             <span>Prazo</span>
             <input name="dueDate" type="date" />
+          </label>
+          <label>
+            <span>Recorrência</span>
+            <select name="recurrence">
+              <option value="none">Única</option>
+              <option value="daily">Diária</option>
+              <option value="weekly">Semanal</option>
+            </select>
           </label>
         </div>
         <div class="dialog-actions">
@@ -397,7 +481,7 @@
           <span>Descrição</span>
           <textarea name="description" rows="3"></textarea>
         </label>
-        <div class="form-row two-cols">
+        <div class="form-row three-cols">
           <label>
             <span>Status</span>
             <select name="status">
@@ -407,13 +491,32 @@
             </select>
           </label>
           <label>
-            <span>Prazo</span>
-            <input name="dueDate" type="date" />
+            <span>Prioridade</span>
+            <select name="priority">
+              <option value="medium">Média</option>
+              <option value="high">Alta</option>
+              <option value="low">Baixa</option>
+            </select>
+          </label>
+          <label>
+            <span>Categoria</span>
+            <select name="category">
+              <option value="dino">Dinossauro</option>
+              <option value="event">Evento</option>
+              <option value="battle">Batalha</option>
+              <option value="park">Parque</option>
+              <option value="resources">Recursos</option>
+              <option value="other">Outro</option>
+            </select>
           </label>
         </div>
         <label>
-          <span>Etapas</span>
-          <textarea name="steps" rows="5" placeholder="Uma etapa por linha"></textarea>
+          <span>Prazo</span>
+          <input name="dueDate" type="date" />
+        </label>
+        <label>
+          <span>Etapas e notas</span>
+          <textarea name="steps" rows="6" placeholder="Uma etapa por linha. Use: etapa | nota opcional"></textarea>
         </label>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
@@ -423,6 +526,48 @@
           </button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="importPreviewDialog" class="app-dialog">
+      <div class="dialog-card">
+        <div class="dialog-heading">
+          <h2>Prévia do backup</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="importPreviewContent" class="preview-grid"></div>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
+          <button id="confirmImportButton" class="primary-button" type="button">
+            <i data-lucide="upload"></i>
+            <span>Importar backup</span>
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="imageViewerDialog" class="image-dialog">
+      <div class="image-viewer">
+        <div class="dialog-heading">
+          <h2 id="imageViewerTitle">Print</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <img id="imageViewerImg" alt="Print da linha do tempo" />
+        <div class="image-viewer-actions">
+          <button id="prevImageButton" class="secondary-button" type="button">
+            <i data-lucide="chevron-left"></i>
+            <span>Anterior</span>
+          </button>
+          <span id="imageViewerCount" class="muted-text"></span>
+          <button id="nextImageButton" class="secondary-button" type="button">
+            <span>Próxima</span>
+            <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+      </div>
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
