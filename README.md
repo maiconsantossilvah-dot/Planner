@@ -17,10 +17,11 @@ Também é possível abrir `index.html` direto no navegador.
 - painel com resumo do parque
 - tarefas com prioridade, categoria, prazo e recorrência
 - filtro de tarefas de hoje, atrasadas e recorrentes
-- missões com etapas, notas, prioridade, categoria e progresso automático
+- missões com etapas, dinos ligados, notas, prioridade, categoria e progresso automático
 - calendário com eventos do jogo, tarefas, missões e metas por data
-- sistema de dinossauros com classe, raridade, nível alvo, DNA/comida e missão ligada
+- sistema de dinossauros com classe, raridade, nível alvo, cópias, DNA/comida e missão ligada
 - busca na Jurassic World: The Game Wiki para preencher dados do dino
+- aba News com últimos dinos lançados via Paleo.gg
 - metas semanais com progresso
 - painel inteligente com alertas de atraso, metas e objetivos quase prontos
 - linha do tempo com múltiplos prints por registro
@@ -49,11 +50,14 @@ Sem essa configuração, os prints ficam salvos apenas no navegador.
 
 ## Wiki Dos Dinos
 
-Na aba `Dinos`, abra `Novo dino`, digite o nome e clique em `Buscar na wiki`.
+Na aba `Dinos`, abra `Novo dino`, escolha a fonte, digite o nome e clique em `Buscar fonte`.
 
-O app usa apenas a fonte:
+O app usa estas fontes:
 
 - `Jurassic World: The Game Wiki / Fandom`
+- `Paleo.gg / Jurassic World: The Game / Creatures`
+
+No Paleo.gg, use o nome completo da criatura do jogo. A busca sempre consulta o caminho `jurassic-world-the-game/creatures`.
 
 Quando encontrar uma página de criatura, ele mostra uma prévia e pode preencher:
 
@@ -68,7 +72,14 @@ Quando encontrar uma página de criatura, ele mostra uma prévia e pode preenche
 - dano no nível 40
 - moedas por minuto
 - calculo automatico de DNA e comida para chegar ao nivel desejado
+- descrição traduzida para português quando a API de tradução responder
 - imagem e link da fonte
+
+Ao clicar em um card de dino, o app abre os detalhes, incluindo preço base, stats, descrição e cópias cadastradas.
+
+## News
+
+A aba `News` checa o Paleo.gg sempre que é aberta. Se a versão da base mudou, ela atualiza os últimos dinos lançados com imagem, raridade, classe, stats, preço e data de lançamento.
 
 ## Arquivos
 

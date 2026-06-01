@@ -1,8 +1,18 @@
 const STORAGE_KEY = "jurassic-planner-v1";
 const AUTO_BACKUP_KEY = "jurassic-planner-auto-backup-v2";
+const TRANSLATION_CACHE_KEY = "jurassic-planner-translation-cache-v1";
+const PALEO_NEWS_CACHE_KEY = "jurassic-planner-paleo-news-cache-v1";
 const SCHEMA_VERSION = 3;
 const DINO_WIKI_API = "https://jurassic-world-the-mobile-game.fandom.com/api.php";
 const DINO_WIKI_BASE = "https://jurassic-world-the-mobile-game.fandom.com/wiki/";
+const DINO_WIKI_SOURCE_NAME = "Jurassic World: The Game Wiki";
+const PALEO_CREATURES_URL = "https://www.paleo.gg/games/jurassic-world-the-game/creatures";
+const PALEO_SOURCE_NAME = "Paleo.gg (Jurassic World: The Game)";
+const PALEO_CDN_BASE = "https://cdn.paleo.gg/games";
+const PALEO_NEXT_DATA_BASE = "https://www.paleo.gg/_next/data";
+const PALEO_NEWS_SEED = "indominus_rex";
+const JINA_READER_PREFIX = "https://r.jina.ai/http://r.jina.ai/http://";
+const TRANSLATION_API = "https://api.mymemory.translated.net/get";
 
 const categoryLabels = {
   dino: "Dinossauro",
@@ -74,6 +84,9 @@ const dinoRarityLabels = {
   legendary: "Lendário",
   vip: "VIP",
   tournament: "Torneio",
+  star: "Star",
+  "super-star": "Super Star",
+  boss: "Boss",
 };
 
 let state = hydrateState(loadStoredState());
@@ -86,6 +99,13 @@ let viewerState = {
   imageIndex: 0,
 };
 let pendingDinoWikiData = null;
+let newsState = {
+  status: "idle",
+  items: [],
+  updatedAt: "",
+  message: "Abra a aba para carregar os últimos dinos.",
+  progress: "",
+};
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
@@ -109,6 +129,7 @@ function bindEvents() {
   $("#missionForm").addEventListener("submit", handleMissionSubmit);
   $("#calendarForm").addEventListener("submit", handleCalendarSubmit);
   $("#dinoForm").addEventListener("submit", handleDinoSubmit);
+  $("#dinoCopyForm").addEventListener("submit", handleDinoCopySubmit);
   ["currentLevel", "targetLevel"].forEach((name) => {
     $("#dinoForm").elements[name].addEventListener("input", () => updateDinoResourceFields());
   });
@@ -124,6 +145,7 @@ function bindEvents() {
   $("#newDinoButton").addEventListener("click", () => openDinoDialog());
   $("#newGoalButton").addEventListener("click", () => openGoalDialog());
   $("#fetchDinoWikiButton").addEventListener("click", fetchDinoWikiFromForm);
+  $("#refreshNewsButton").addEventListener("click", () => loadPaleoNews({ force: true }));
   $("#resetRecurringButton").addEventListener("click", resetRecurringTasks);
   $("#resetRecurringFromTasks").addEventListener("click", resetRecurringTasks);
   $("#cancelTimelineEdit").addEventListener("click", resetTimelineForm);
@@ -179,6 +201,7 @@ function handleDocumentClick(event) {
   if (!actionButton) return;
 
   const { action, id, missionId, stepId, imageId } = actionButton.dataset;
+  if (action === "open-dino-detail" && actionButton.classList.contains("dino-card") && event.target.closest("a, button, input, select, textarea")) return;
 
   if (action === "toggle-task") toggleTask(id);
   if (action === "edit-task") openTaskDialog(getTask(id));
@@ -188,7 +211,9 @@ function handleDocumentClick(event) {
   if (action === "edit-calendar") openCalendarDialog(getCalendarEvent(id));
   if (action === "delete-calendar") deleteCalendarEvent(id);
   if (action === "edit-dino") openDinoDialog(getDino(id));
+  if (action === "open-dino-detail") openDinoDetailDialog(getDino(id));
   if (action === "delete-dino") deleteDino(id);
+  if (action === "delete-dino-copy") deleteDinoCopy(id, actionButton.dataset.copyId);
   if (action === "apply-dino-wiki") applyPendingDinoWikiData();
   if (action === "edit-goal") openGoalDialog(getGoal(id));
   if (action === "delete-goal") deleteGoal(id);
@@ -204,6 +229,12 @@ function handleDocumentClick(event) {
 }
 
 function handleDocumentChange(event) {
+  const copyLevelInput = event.target.closest('[data-action="update-dino-copy"]');
+  if (copyLevelInput) {
+    updateDinoCopyLevel(copyLevelInput.dataset.id, copyLevelInput.dataset.copyId, copyLevelInput.value);
+    return;
+  }
+
   const stepCheckbox = event.target.closest('[data-action="toggle-step"]');
   if (!stepCheckbox) return;
   toggleMissionStep(stepCheckbox.dataset.missionId, stepCheckbox.dataset.stepId, stepCheckbox.checked);
@@ -229,6 +260,7 @@ function switchView(view) {
   });
   $$(".view").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.viewPanel === view));
   renderAll();
+  if (view === "news") loadPaleoNews({ force: true });
 }
 
 function createEmptyState() {
@@ -284,7 +316,7 @@ function hydrateState(value) {
     hydrated.settings.cloudinaryStatus = "not-configured";
   }
 
-  hydrated.missions.forEach(autoUpdateMissionStatus);
+  hydrated.missions.forEach((mission) => autoUpdateMissionStatus(mission, mission.status, { dinosaurs: hydrated.dinosaurs }));
   return hydrated;
 }
 
@@ -325,6 +357,7 @@ function hydrateMission(mission) {
     category: mission.category || "other",
     dueDate: mission.dueDate || "",
     steps,
+    dinoIds: normalizeMissionDinoIds(mission.dinoIds),
     tags: normalizeTags(mission.tags),
     createdAt: mission.createdAt || new Date().toISOString(),
     updatedAt: mission.updatedAt || "",
@@ -364,6 +397,7 @@ function hydrateDino(dino) {
     wikiTitle: dino.wikiTitle || "",
     wikiUrl: dino.wikiUrl || "",
     wikiImageUrl: dino.wikiImageUrl || "",
+    sourceName: dino.sourceName || getDinoSourceName(dino.wikiUrl),
     wikiClass: dino.wikiClass || "",
     wikiRarity: dino.wikiRarity || "",
     incubationTime: dino.incubationTime || "",
@@ -372,6 +406,7 @@ function hydrateDino(dino) {
     health40: dino.health40 || "",
     damage40: dino.damage40 || "",
     coinsPerMinute: dino.coinsPerMinute || "",
+    copies: normalizeDinoCopies(dino.copies),
     tags: normalizeTags(dino.tags),
     createdAt: dino.createdAt || new Date().toISOString(),
     updatedAt: dino.updatedAt || "",
@@ -482,6 +517,30 @@ function writeAutoBackup() {
   }
 }
 
+function readPaleoNewsCache() {
+  try {
+    const raw = localStorage.getItem(PALEO_NEWS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePaleoNewsCache(cache) {
+  try {
+    localStorage.setItem(
+      PALEO_NEWS_CACHE_KEY,
+      JSON.stringify({
+        buildId: cache.buildId,
+        items: cache.items || [],
+        updatedAt: cache.updatedAt || new Date().toISOString(),
+      }),
+    );
+  } catch (error) {
+    console.warn("Cache de news ignorado.", error);
+  }
+}
+
 function saveAndRender(message) {
   saveState();
   renderAll();
@@ -495,6 +554,7 @@ function renderAll() {
   renderMissions();
   renderCalendar();
   renderDinosaurs();
+  renderNews();
   renderGoals();
   renderTimeline();
   renderTimelineMissionOptions();
@@ -623,6 +683,64 @@ function renderDinosaurs() {
   list.innerHTML = dinos.length ? dinos.map(renderDinoCard).join("") : emptyState("egg", "Nenhum dino cadastrado");
 }
 
+function renderNews() {
+  const status = $("#newsStatus");
+  const grid = $("#newsGrid");
+  if (!status || !grid) return;
+
+  const statusLabel =
+    newsState.status === "loading"
+      ? "Atualizando Paleo.gg"
+      : newsState.status === "error"
+        ? "Falha ao atualizar"
+        : newsState.updatedAt
+          ? `Atualizado em ${formatDateTime(newsState.updatedAt)}`
+          : "Aguardando atualização";
+
+  status.innerHTML = `
+    <div>
+      <strong>${escapeHtml(statusLabel)}</strong>
+      <span>${escapeHtml(newsState.progress || newsState.message || "")}</span>
+    </div>
+  `;
+
+  if (!newsState.items.length) {
+    grid.innerHTML = emptyState("newspaper", newsState.status === "loading" ? "Buscando últimos dinos..." : "Abra a aba News para atualizar");
+    return;
+  }
+
+  grid.innerHTML = newsState.items.map(renderNewsCard).join("");
+}
+
+function renderNewsCard(item) {
+  const image = safeImageUrl(item.imageUrl);
+  const price = item.dnaPrice ? `${formatNumber(item.dnaPrice)} DNA` : "Preço indisponível";
+  const release = item.releaseDate ? formatDate(item.releaseDate) : "Sem data";
+  return `
+    <article class="news-card">
+      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.name)}" loading="lazy" />` : ""}
+      <div class="news-copy">
+        <div class="item-title-row">
+          <h3>${escapeHtml(item.name)}</h3>
+          <span class="tag">${escapeHtml(dinoClassLabels[item.classType] || item.classType)}</span>
+          <span class="status-pill">${escapeHtml(dinoRarityLabels[item.rarity] || item.rarity)}</span>
+        </div>
+        <div class="meta-grid">
+          <span>Lançado: ${escapeHtml(release)}</span>
+          <span>DNA: ${escapeHtml(price)}</span>
+          <span>Ferocidade: ${escapeHtml(formatNumber(item.ferocity))}</span>
+        </div>
+        <div class="wiki-stat-row">
+          <span>Vida 40: ${escapeHtml(formatNumber(item.health40))}</span>
+          <span>Dano 40: ${escapeHtml(formatNumber(item.damage40))}</span>
+          <span>Moedas/min: ${escapeHtml(formatNumber(item.coinsPerMinute))}</span>
+        </div>
+        <a class="source-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Fonte: Paleo.gg</a>
+      </div>
+    </article>
+  `;
+}
+
 function renderGoals() {
   const list = $("#goalList");
   const statusFilter = $("#goalStatusFilter").value;
@@ -665,20 +783,27 @@ function renderTimelineMissionOptions() {
   const filterSelect = $("#timelineMissionFilter");
   const galleryMissionSelect = $("#galleryMissionFilter");
   const dinoMissionSelect = $("#dinoMissionSelect");
+  const missionDinoSelect = $("#missionDinoSelect");
   const formValue = formSelect.value;
   const filterValue = filterSelect.value;
   const galleryValue = galleryMissionSelect.value;
   const dinoValue = dinoMissionSelect.value;
+  const missionDinoValues = getSelectedValues(missionDinoSelect);
   const options = state.missions.map((mission) => `<option value="${escapeHtml(mission.id)}">${escapeHtml(mission.name)}</option>`).join("");
+  const dinoOptions = state.dinosaurs
+    .map((dino) => `<option value="${escapeHtml(dino.id)}">${escapeHtml(dino.name)} - LV${escapeHtml(dino.currentLevel)}/${escapeHtml(dino.targetLevel)}</option>`)
+    .join("");
 
   formSelect.innerHTML = `<option value="">Sem ligação</option>${options}`;
   filterSelect.innerHTML = `<option value="all">Todas as missões</option>${options}`;
   galleryMissionSelect.innerHTML = `<option value="all">Todas as missões</option>${options}`;
   dinoMissionSelect.innerHTML = `<option value="">Sem ligação</option>${options}`;
+  missionDinoSelect.innerHTML = dinoOptions || `<option disabled>Nenhum dino cadastrado</option>`;
   formSelect.value = state.missions.some((mission) => mission.id === formValue) ? formValue : "";
   filterSelect.value = state.missions.some((mission) => mission.id === filterValue) ? filterValue : "all";
   galleryMissionSelect.value = state.missions.some((mission) => mission.id === galleryValue) ? galleryValue : "all";
   dinoMissionSelect.value = state.missions.some((mission) => mission.id === dinoValue) ? dinoValue : "";
+  setSelectedValues(missionDinoSelect, missionDinoValues);
 }
 
 function renderGallery() {
@@ -738,6 +863,7 @@ function renderTaskCard(task) {
 function renderMissionCard(mission) {
   const progress = getMissionProgress(mission);
   const steps = normalizeMissionSteps(mission);
+  const linkedDinos = getMissionLinkedDinos(mission);
   const linkedImages = getLinkedTimelineImages(mission.id);
   const dueDate = mission.dueDate ? `<span class="tag ${isMissionOverdue(mission) ? "tag-danger" : ""}">${escapeHtml(formatDate(mission.dueDate))}</span>` : "";
   const description = mission.description ? `<p class="mission-description">${escapeHtml(mission.description)}</p>` : "";
@@ -747,6 +873,7 @@ function renderMissionCard(mission) {
   const prints = linkedImages.length
     ? `<div class="linked-print-strip">${linkedImages.slice(0, 6).map(renderLinkedPrint).join("")}</div>`
     : "";
+  const dinoList = linkedDinos.length ? `<div class="linked-dino-strip">${linkedDinos.map(renderLinkedDinoPill).join("")}</div>` : "";
 
   return `
     <article class="mission-card">
@@ -774,6 +901,7 @@ function renderMissionCard(mission) {
         <div class="progress-fill" style="width: ${progress}%"></div>
       </div>
       ${renderTagRow(mission.tags)}
+      ${dinoList}
       ${stepList}
       <form class="add-step-form" data-mission-id="${escapeHtml(mission.id)}">
         <input type="text" placeholder="Nova etapa | nota opcional" autocomplete="off" />
@@ -840,15 +968,18 @@ function renderAgendaItem(item) {
 
 function renderDinoCard(dino) {
   const mission = dino.missionId ? getMission(dino.missionId) : null;
+  const linkedMissionNames = [...new Set([mission?.name, ...getDinoMissions(dino.id).map((item) => item.name)].filter(Boolean))];
   const progress = getDinoProgress(dino);
   const image = safeImageUrl(dino.wikiImageUrl);
+  const sourceName = getDinoSourceName(dino.wikiUrl, dino.sourceName);
+  const copies = normalizeDinoCopies(dino.copies);
   const wikiStats = [
     dino.health40 ? `Vida 40: ${dino.health40}` : "",
     dino.damage40 ? `Dano 40: ${dino.damage40}` : "",
     dino.coinsPerMinute ? `Moedas/min: ${dino.coinsPerMinute}` : "",
   ].filter(Boolean);
   return `
-    <article class="dino-card">
+    <article class="dino-card" data-action="open-dino-detail" data-id="${escapeHtml(dino.id)}" tabindex="0" title="Abrir detalhes">
       ${image ? `<img class="dino-image" src="${escapeHtml(image)}" alt="${escapeHtml(dino.name)}" loading="lazy" />` : ""}
       <div class="item-title-row">
         <h3>${escapeHtml(dino.name)}</h3>
@@ -863,12 +994,13 @@ function renderDinoCard(dino) {
         <span>DNA: ${escapeHtml(formatNumber(dino.dnaNeeded))}</span>
         <span>Comida: ${escapeHtml(formatNumber(dino.foodNeeded))}</span>
       </div>
-      ${mission ? `<p class="item-description">Missão: ${escapeHtml(mission.name)}</p>` : ""}
+      ${copies.length ? `<div class="wiki-stat-row">${copies.slice(0, 4).map((copy, index) => `<span>Cópia ${index + 1}: LV${escapeHtml(copy.level)}</span>`).join("")}${copies.length > 4 ? `<span>+${copies.length - 4}</span>` : ""}</div>` : ""}
+      ${linkedMissionNames.length ? `<p class="item-description">Missão: ${escapeHtml(linkedMissionNames.join(", "))}</p>` : ""}
       ${dino.parents ? `<p class="item-description">Pais: ${escapeHtml(dino.parents)}</p>` : ""}
       ${dino.hybrids ? `<p class="item-description">Híbridos: ${escapeHtml(dino.hybrids)}</p>` : ""}
       ${wikiStats.length ? `<div class="wiki-stat-row">${wikiStats.map((stat) => `<span>${escapeHtml(stat)}</span>`).join("")}</div>` : ""}
       ${dino.notes ? `<p class="item-description">${escapeHtml(dino.notes)}</p>` : ""}
-      ${dino.wikiUrl ? `<a class="source-link" href="${escapeHtml(dino.wikiUrl)}" target="_blank" rel="noreferrer">Fonte: Jurassic World: The Game Wiki</a>` : ""}
+      ${dino.wikiUrl ? `<a class="source-link" href="${escapeHtml(dino.wikiUrl)}" target="_blank" rel="noreferrer">Fonte: ${escapeHtml(sourceName)}</a>` : ""}
       ${renderTagRow(dino.tags)}
       <div class="card-actions">
         <button class="icon-button" type="button" data-action="edit-dino" data-id="${escapeHtml(dino.id)}" title="Editar">
@@ -879,6 +1011,78 @@ function renderDinoCard(dino) {
         </button>
       </div>
     </article>
+  `;
+}
+
+function openDinoDetailDialog(dino) {
+  if (!dino) return;
+  $("#dinoDetailTitle").textContent = dino.name;
+  $("#dinoCopyForm").elements.dinoId.value = dino.id;
+  $("#dinoCopyForm").elements.level.value = 10;
+  renderDinoDetailContent(dino);
+  showDialog("#dinoDetailDialog");
+}
+
+function renderDinoDetailContent(dino) {
+  const content = $("#dinoDetailContent");
+  const image = safeImageUrl(dino.wikiImageUrl);
+  const copies = normalizeDinoCopies(dino.copies);
+  const sourceName = getDinoSourceName(dino.wikiUrl, dino.sourceName);
+  const missionNames = getDinoMissions(dino.id).map((mission) => mission.name).join(", ");
+  const copyRows = copies.length
+    ? copies.map((copy, index) => renderDinoCopyRow(dino.id, copy, index)).join("")
+    : `<p class="item-description">Nenhuma cópia cadastrada ainda.</p>`;
+
+  content.innerHTML = `
+    <div class="dino-detail-layout">
+      <div class="dino-detail-media">
+        ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(dino.name)}" />` : `<i data-lucide="egg"></i>`}
+      </div>
+      <div class="dino-detail-main">
+        <div class="item-title-row">
+          <span class="tag">${escapeHtml(dinoClassLabels[dino.classType] || dino.classType)}</span>
+          <span class="status-pill">${escapeHtml(dinoRarityLabels[dino.rarity] || dino.rarity)}</span>
+          ${dino.wikiUrl ? `<a class="source-link" href="${escapeHtml(dino.wikiUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceName)}</a>` : ""}
+        </div>
+        <div class="meta-grid">
+          <span>Base DNA: ${escapeHtml(formatNumber(dino.dnaPrice))}</span>
+          <span>Atual: LV${escapeHtml(dino.currentLevel)}</span>
+          <span>Alvo: LV${escapeHtml(dino.targetLevel)}</span>
+          <span>DNA faltante: ${escapeHtml(formatNumber(dino.dnaNeeded))}</span>
+          <span>Comida: ${escapeHtml(formatNumber(dino.foodNeeded))}</span>
+          <span>Cópias: ${escapeHtml(copies.length)}</span>
+        </div>
+        <div class="wiki-stat-row">
+          ${dino.health40 ? `<span>Vida 40: ${escapeHtml(formatNumber(dino.health40))}</span>` : ""}
+          ${dino.damage40 ? `<span>Dano 40: ${escapeHtml(formatNumber(dino.damage40))}</span>` : ""}
+          ${dino.coinsPerMinute ? `<span>Moedas/min: ${escapeHtml(formatNumber(dino.coinsPerMinute))}</span>` : ""}
+          ${dino.incubationTime ? `<span>Incubação: ${escapeHtml(dino.incubationTime)}</span>` : ""}
+        </div>
+        ${dino.parents ? `<p class="item-description">Pais: ${escapeHtml(dino.parents)}</p>` : ""}
+        ${dino.hybrids ? `<p class="item-description">Híbridos: ${escapeHtml(dino.hybrids)}</p>` : ""}
+        ${missionNames ? `<p class="item-description">Missões: ${escapeHtml(missionNames)}</p>` : ""}
+        ${dino.notes ? `<p class="item-description">${escapeHtml(dino.notes)}</p>` : ""}
+      </div>
+    </div>
+    <section class="copy-panel">
+      <div class="panel-heading">
+        <h3>Cópias cadastradas</h3>
+      </div>
+      <div class="copy-list">${copyRows}</div>
+    </section>
+  `;
+  refreshIcons();
+}
+
+function renderDinoCopyRow(dinoId, copy, index) {
+  return `
+    <div class="copy-row">
+      <strong>Cópia ${index + 1}</strong>
+      <input data-action="update-dino-copy" data-id="${escapeHtml(dinoId)}" data-copy-id="${escapeHtml(copy.id)}" type="number" min="1" max="40" value="${escapeHtml(copy.level)}" aria-label="Nível da cópia ${index + 1}" />
+      <button class="icon-button" type="button" data-action="delete-dino-copy" data-id="${escapeHtml(dinoId)}" data-copy-id="${escapeHtml(copy.id)}" title="Apagar cópia">
+        <i data-lucide="trash-2"></i>
+      </button>
+    </div>
   `;
 }
 
@@ -1130,6 +1334,7 @@ function handleMissionSubmit(event) {
     category: data.category || "other",
     dueDate: data.dueDate || "",
     steps,
+    dinoIds: getSelectedValues(form.elements.dinoIds),
     tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1137,6 +1342,7 @@ function handleMissionSubmit(event) {
   };
 
   if (!mission.name) return;
+  const wasRequestedDone = data.status === "done";
   autoUpdateMissionStatus(mission, data.status);
 
   const index = state.missions.findIndex((item) => item.id === id);
@@ -1144,7 +1350,7 @@ function handleMissionSubmit(event) {
   else state.missions.unshift(mission);
 
   $("#missionDialog").close();
-  saveAndRender("Missão salva.");
+  saveAndRender(!wasRequestedDone && mission.status === "done" ? `Missão salva e concluída: ${mission.name}.` : "Missão salva.");
 }
 
 function handleCalendarSubmit(event) {
@@ -1197,6 +1403,7 @@ function handleDinoSubmit(event) {
     wikiTitle: String(data.wikiTitle || "").trim(),
     wikiUrl: String(data.wikiUrl || "").trim(),
     wikiImageUrl: safeImageUrl(data.wikiImageUrl) || "",
+    sourceName: String(data.sourceName || "").trim() || getDinoSourceName(data.wikiUrl),
     wikiClass: String(data.wikiClass || "").trim(),
     wikiRarity: String(data.wikiRarity || "").trim(),
     incubationTime: String(data.incubationTime || "").trim(),
@@ -1205,19 +1412,46 @@ function handleDinoSubmit(event) {
     health40: String(data.health40 || "").trim(),
     damage40: String(data.damage40 || "").trim(),
     coinsPerMinute: String(data.coinsPerMinute || "").trim(),
+    copies: normalizeDinoCopies(existing?.copies),
     tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
   if (!dino.name) return;
+  if (dino.copies.length) refreshDinoFromCopies(dino);
 
   const index = state.dinosaurs.findIndex((item) => item.id === id);
   if (index >= 0) state.dinosaurs[index] = dino;
   else state.dinosaurs.unshift(dino);
+  const completedMissionNames = syncDinoMissions();
 
   $("#dinoDialog").close();
-  saveAndRender("Dino salvo.");
+  saveAndRender(completedMissionNames.length ? `Dino salvo. Missão concluída: ${completedMissionNames.join(", ")}.` : "Dino salvo.");
+}
+
+function handleDinoCopySubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const dino = getDino(form.elements.dinoId.value);
+  if (!dino) return;
+
+  dino.copies = [
+    ...normalizeDinoCopies(dino.copies),
+    {
+      id: createId(),
+      level: clampNumber(form.elements.level.value, 1, 40, 10),
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  refreshDinoFromCopies(dino);
+  dino.updatedAt = new Date().toISOString();
+  const completedMissionNames = syncDinoMissions();
+  saveState();
+  renderAll();
+  renderDinoDetailContent(dino);
+  form.elements.level.value = 10;
+  showToast(completedMissionNames.length ? `Cópia adicionada. Missão concluída: ${completedMissionNames.join(", ")}.` : "Cópia adicionada.");
 }
 
 function handleGoalSubmit(event) {
@@ -1349,6 +1583,7 @@ function openMissionDialog(mission = null) {
   form.elements.steps.value = normalizeMissionSteps(mission || { steps: [] })
     .map((step) => (step.note ? `${step.text} | ${step.note}` : step.text))
     .join("\n");
+  setSelectedValues(form.elements.dinoIds, normalizeMissionDinoIds(mission?.dinoIds));
   form.elements.tags.value = formTagsValue(mission?.tags);
   showDialog("#missionDialog");
 }
@@ -1387,6 +1622,8 @@ function openDinoDialog(dino = null) {
   form.elements.wikiTitle.value = dino?.wikiTitle || "";
   form.elements.wikiUrl.value = dino?.wikiUrl || "";
   form.elements.wikiImageUrl.value = dino?.wikiImageUrl || "";
+  form.elements.sourceName.value = dino?.sourceName || getDinoSourceName(dino?.wikiUrl);
+  form.elements.dataSource.value = dino?.wikiUrl?.includes("paleo.gg") ? "paleo" : "fandom";
   form.elements.wikiClass.value = dino?.wikiClass || "";
   form.elements.wikiRarity.value = dino?.wikiRarity || "";
   form.elements.incubationTime.value = dino?.incubationTime || "";
@@ -1427,12 +1664,15 @@ async function fetchDinoWikiFromForm() {
   const button = $("#fetchDinoWikiButton");
   const label = button.querySelector("span");
   const oldLabel = label.textContent;
+  const source = form.elements.dataSource.value || "fandom";
+  const sourceLabel = source === "paleo" ? PALEO_SOURCE_NAME : DINO_WIKI_SOURCE_NAME;
   button.disabled = true;
   label.textContent = "Buscando";
-  renderDinoWikiMessage("Buscando na Jurassic World: The Game Wiki...");
+  renderDinoWikiMessage(`Buscando em ${sourceLabel}...`);
 
   try {
-    pendingDinoWikiData = await fetchDinoWikiData(name);
+    pendingDinoWikiData = source === "paleo" ? await fetchDinoPaleoData(name) : await fetchDinoWikiData(name);
+    pendingDinoWikiData = await translateDinoSourceData(pendingDinoWikiData);
     renderDinoWikiResult(pendingDinoWikiData);
   } catch (error) {
     console.error(error);
@@ -1470,10 +1710,220 @@ async function fetchDinoWikiData(name) {
   return extractDinoWikiData(html, pagePayload.parse.title || hit.title, pagePayload.parse.displaytitle || hit.title);
 }
 
-async function fetchJson(url) {
+async function fetchDinoPaleoData(name) {
+  const slug = toPaleoCreatureSlug(name);
+  const detailHtml = await fetchText(`${PALEO_CREATURES_URL}/${encodeURIComponent(slug)}`, PALEO_SOURCE_NAME);
+  const detailData = parseNextData(detailHtml);
+  const detail = detailData?.props?.pageProps?.detail;
+  if (!detail) throw new Error("O Paleo.gg respondeu, mas nao trouxe a ficha da criatura. Use o nome completo do dino no jogo.");
+
+  const foodCosts = await tryFetchDinoWikiFoodCosts(detail.name || name);
+  return extractDinoPaleoData(detail, { uuid: slug, name }, foodCosts);
+}
+
+async function loadPaleoNews({ force = false } = {}) {
+  if (newsState.status === "loading") return;
+  const cached = readPaleoNewsCache();
+  if (cached?.items?.length) {
+    newsState = {
+      status: "ready",
+      items: cached.items,
+      updatedAt: cached.updatedAt,
+      message: "Dados carregados do cache enquanto o Paleo.gg é checado.",
+      progress: "",
+    };
+    renderNews();
+  }
+
+  newsState = {
+    ...newsState,
+    status: "loading",
+    message: "Checando atualizações do Paleo.gg...",
+    progress: "",
+  };
+  renderNews();
+
+  try {
+    const buildId = await fetchPaleoBuildId();
+    if (cached?.buildId === buildId && cached?.items?.length) {
+      newsState = {
+        status: "ready",
+        items: cached.items,
+        updatedAt: cached.updatedAt,
+        message: "Paleo.gg sem mudanças desde o último cache.",
+        progress: "",
+      };
+      renderNews();
+      return;
+    }
+
+    const listData = await fetchPaleoCreatureListData(buildId);
+    const items = listData?.pageProps?.dex?.items || [];
+    const detailed = await fetchPaleoNewsDetails(items, buildId);
+    const newsItems = detailed
+      .filter((item) => item.releaseDate)
+      .sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))
+      .slice(0, 12);
+
+    newsState = {
+      status: "ready",
+      items: newsItems,
+      updatedAt: new Date().toISOString(),
+      message: `${newsItems.length} dinos recentes carregados do Paleo.gg.`,
+      progress: "",
+    };
+    writePaleoNewsCache({ buildId, ...newsState });
+    renderNews();
+    refreshIcons();
+  } catch (error) {
+    console.error(error);
+    newsState = {
+      ...newsState,
+      status: "error",
+      message: error.message || "Não foi possível atualizar a News agora.",
+      progress: "",
+    };
+    renderNews();
+    refreshIcons();
+  }
+}
+
+async function fetchPaleoBuildId() {
+  const html = await fetchText(`${PALEO_CREATURES_URL}/${PALEO_NEWS_SEED}`, PALEO_SOURCE_NAME);
+  const match = html.match(/"buildId":"([^"]+)"/);
+  if (!match) throw new Error("Não consegui identificar a versão atual do Paleo.gg.");
+  return match[1];
+}
+
+async function fetchPaleoCreatureListData(buildId) {
+  const url = `${PALEO_NEXT_DATA_BASE}/${encodeURIComponent(buildId)}/en/games/jurassic-world-the-game/creatures.json`;
+  try {
+    return await fetchJson(url, PALEO_SOURCE_NAME);
+  } catch {
+    const mirrored = await fetchText(`${JINA_READER_PREFIX}${url}`, "Espelho do Paleo.gg");
+    return parseJsonFromReaderText(mirrored);
+  }
+}
+
+async function fetchPaleoNewsDetails(items, buildId) {
+  const candidates = items.filter((item) => item?.uuid).slice();
+  const results = [];
+  let index = 0;
+  const workers = Array.from({ length: 8 }, async () => {
+    while (index < candidates.length) {
+      const item = candidates[index];
+      index += 1;
+      if (index % 24 === 0 || index === candidates.length) {
+        newsState = {
+          ...newsState,
+          progress: `Lendo fichas ${Math.min(index, candidates.length)}/${candidates.length}`,
+        };
+        renderNews();
+      }
+      try {
+        const detail = await fetchPaleoDetailData(item.uuid, buildId);
+        results.push(formatPaleoNewsItem(detail?.pageProps?.detail, item));
+      } catch {
+        results.push(formatPaleoNewsItem(null, item));
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results.filter(Boolean);
+}
+
+async function fetchPaleoDetailData(uuid, buildId) {
+  const url = `${PALEO_NEXT_DATA_BASE}/${encodeURIComponent(buildId)}/en/games/jurassic-world-the-game/creatures/${encodeURIComponent(uuid)}.json`;
+  return fetchJson(url, PALEO_SOURCE_NAME);
+}
+
+async function fetchJson(url, sourceName = "wiki") {
   const response = await fetch(url);
-  if (!response.ok) throw new Error("A wiki recusou a busca agora. Tente novamente em alguns segundos.");
+  if (!response.ok) throw new Error(`${sourceName} recusou a busca agora. Tente novamente em alguns segundos.`);
   return response.json();
+}
+
+async function fetchText(url, sourceName = "fonte") {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${sourceName} recusou a busca agora. Tente novamente em alguns segundos.`);
+  return response.text();
+}
+
+async function tryFetchDinoWikiFoodCosts(name) {
+  try {
+    const wikiData = await fetchDinoWikiData(name);
+    return wikiData.foodCosts || {};
+  } catch {
+    return {};
+  }
+}
+
+async function translateDinoSourceData(data) {
+  if (!data?.description) return data;
+  const translated = await translateTextToPortuguese(data.description);
+  return {
+    ...data,
+    description: translated || data.description,
+  };
+}
+
+async function translateTextToPortuguese(text) {
+  const clean = stripText(text);
+  if (!clean || normalizeText(clean).length < 12 || looksPortuguese(clean)) return clean;
+  const cache = readTranslationCache();
+  const key = normalizeText(clean).slice(0, 180);
+  if (cache[key]) return cache[key];
+
+  try {
+    const params = new URLSearchParams({
+      q: clean.slice(0, 480),
+      langpair: "en|pt-BR",
+    });
+    const payload = await fetchJson(`${TRANSLATION_API}?${params}`, "Tradução");
+    const translated = stripText(payload?.responseData?.translatedText);
+    if (translated) {
+      cache[key] = translated;
+      writeTranslationCache(cache);
+      return translated;
+    }
+  } catch (error) {
+    console.warn("Tradução ignorada.", error);
+  }
+  return clean;
+}
+
+function readTranslationCache() {
+  try {
+    const raw = localStorage.getItem(TRANSLATION_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeTranslationCache(cache) {
+  try {
+    localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
+  } catch (error) {
+    console.warn("Cache de tradução ignorado.", error);
+  }
+}
+
+function looksPortuguese(text) {
+  return /\b(que|com|para|uma|um|dos|das|nível|dinossauro|missão)\b/i.test(text);
+}
+
+function parseNextData(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const raw = doc.querySelector("#__NEXT_DATA__")?.textContent;
+  if (!raw) throw new Error("A fonte respondeu, mas nao trouxe dados estruturados.");
+  return JSON.parse(raw);
+}
+
+function parseJsonFromReaderText(text) {
+  const start = text.indexOf('{"pageProps"');
+  if (start < 0) throw new Error("O espelho respondeu, mas nao trouxe a lista do Paleo.gg.");
+  return JSON.parse(text.slice(start).trim());
 }
 
 function chooseDinoWikiHit(results, name) {
@@ -1481,6 +1931,12 @@ function chooseDinoWikiHit(results, name) {
   const exact = results.find((result) => normalizeText(result.title) === query);
   if (exact) return exact;
   return results.find((result) => !/pack|event|category|template/i.test(result.title)) || results[0];
+}
+
+function toPaleoCreatureSlug(name) {
+  return normalizeText(name)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function extractDinoWikiData(html, title, displayTitle) {
@@ -1499,6 +1955,7 @@ function extractDinoWikiData(html, title, displayTitle) {
     title: stripText(displayTitle || title),
     pageTitle: title,
     wikiUrl: `${DINO_WIKI_BASE}${encodeURIComponent(title.replaceAll(" ", "_"))}`,
+    sourceName: DINO_WIKI_SOURCE_NAME,
     imageUrl,
     wikiClass,
     classType: mapWikiClass(wikiClass),
@@ -1522,6 +1979,60 @@ function extractDinoWikiData(html, title, displayTitle) {
   }
 
   return data;
+}
+
+function extractDinoPaleoData(detail, hit, foodCosts = {}) {
+  const title = formatPaleoName(detail.name || hit.name || detail.uuid);
+  const wikiClass = formatPaleoLabel(detail.class || detail.region);
+  const wikiRarity = formatPaleoLabel(detail.rarity);
+  const parents = formatPaleoCreatures(detail.ingredients, true);
+  const hybrids = formatPaleoCreatures(detail.hybrids);
+  const facts = Array.isArray(detail.facts) ? detail.facts.map(stripText).filter(Boolean) : [];
+  const description = facts[0] ? `${facts[0].slice(0, 320)}${facts[0].length > 320 ? "..." : ""}` : "";
+  const dnaPrice = Math.max(0, toNumber(detail.dna_buy, getPaleoDnaPrice(hit)));
+
+  return {
+    title,
+    pageTitle: detail.uuid || hit.uuid,
+    wikiUrl: `${PALEO_CREATURES_URL}/${encodeURIComponent(detail.uuid || hit.uuid)}`,
+    sourceName: PALEO_SOURCE_NAME,
+    imageUrl: normalizePaleoImageUrl(detail.uuid || hit.uuid),
+    wikiClass,
+    classType: mapPaleoClass(detail),
+    wikiRarity,
+    rarity: mapPaleoRarity(detail.rarity),
+    incubationTime: formatPaleoDuration(detail.hatch_time),
+    parents,
+    hybrids,
+    buyPriceText: dnaPrice ? `${formatNumber(dnaPrice)} DNA` : "",
+    dnaPrice,
+    foodCosts,
+    health40: detail.health || "",
+    damage40: detail.damage || "",
+    coinsPerMinute: detail.coin_rate || "",
+    description,
+    tags: normalizeTags([wikiClass, wikiRarity, parents ? "hibrido" : "", hybrids ? "fusao" : "", "paleo.gg"]),
+  };
+}
+
+function formatPaleoNewsItem(detail, listItem = {}) {
+  const source = detail || listItem;
+  if (!source?.uuid) return null;
+  const dnaPrice = Math.max(0, toNumber(source.dna_buy, getPaleoDnaPrice(source)));
+  return {
+    uuid: source.uuid,
+    name: formatPaleoName(source.name || source.uuid),
+    classType: mapPaleoClass(source),
+    rarity: mapPaleoRarity(source.rarity),
+    releaseDate: source.release_date || "",
+    dnaPrice,
+    health40: source.health || 0,
+    damage40: source.damage || 0,
+    ferocity: source.ferocity || 0,
+    coinsPerMinute: source.coin_rate || 0,
+    imageUrl: normalizePaleoImageUrl(source.uuid),
+    url: `${PALEO_CREATURES_URL}/${encodeURIComponent(source.uuid)}`,
+  };
 }
 
 function readPiField(doc, source, includeImageAlt = false) {
@@ -1683,12 +2194,13 @@ function renderDinoWikiResult(data, options = {}) {
     return;
   }
 
+  const sourceName = getDinoSourceName(data.wikiUrl, data.sourceName);
   const stats = [
     data.wikiClass ? `Classe: ${data.wikiClass}` : "",
     data.wikiRarity ? `Raridade: ${data.wikiRarity}` : "",
     data.dnaPrice ? `Preço: ${formatNumber(data.dnaPrice)} DNA` : data.buyPriceText ? `Preço: ${data.buyPriceText}` : "",
     data.incubationTime ? `Incubação: ${data.incubationTime}` : "",
-    hasDinoFoodCosts(data.foodCosts) ? "Comida: tabela da wiki" : "",
+    hasDinoFoodCosts(data.foodCosts) ? "Comida: tabela carregada" : "",
     data.health40 ? `Vida 40: ${data.health40}` : "",
     data.damage40 ? `Dano 40: ${data.damage40}` : "",
     data.coinsPerMinute ? `Moedas/min: ${data.coinsPerMinute}` : "",
@@ -1700,7 +2212,7 @@ function renderDinoWikiResult(data, options = {}) {
       ${data.imageUrl ? `<img src="${escapeHtml(data.imageUrl)}" alt="${escapeHtml(data.title)}" />` : ""}
       <div>
         <strong>${escapeHtml(data.title)}</strong>
-        <span>Fonte: Jurassic World: The Game Wiki</span>
+        <span>Fonte: ${escapeHtml(sourceName)}</span>
       </div>
     </div>
     <div class="wiki-chip-list">${stats.map((stat) => `<span>${escapeHtml(stat)}</span>`).join("")}</div>
@@ -1745,6 +2257,7 @@ function applyDinoWikiDataToForm(data) {
   form.elements.wikiTitle.value = data.title || "";
   form.elements.wikiUrl.value = data.wikiUrl || "";
   form.elements.wikiImageUrl.value = data.imageUrl || "";
+  form.elements.sourceName.value = data.sourceName || getDinoSourceName(data.wikiUrl);
   form.elements.wikiClass.value = data.wikiClass || "";
   form.elements.wikiRarity.value = data.wikiRarity || "";
   form.elements.incubationTime.value = data.incubationTime || "";
@@ -1761,6 +2274,7 @@ function getDinoWikiDataFromDino(dino) {
   return {
     title: dino.wikiTitle || dino.name,
     wikiUrl: dino.wikiUrl,
+    sourceName: dino.sourceName || getDinoSourceName(dino.wikiUrl),
     imageUrl: dino.wikiImageUrl,
     wikiClass: dino.wikiClass,
     classType: dino.classType,
@@ -1779,6 +2293,74 @@ function getDinoWikiDataFromDino(dino) {
   };
 }
 
+function getDinoSourceName(url = "", savedName = "") {
+  if (savedName) return savedName;
+  if (String(url).includes("paleo.gg")) return PALEO_SOURCE_NAME;
+  return DINO_WIKI_SOURCE_NAME;
+}
+
+function mapPaleoClass(detail) {
+  const region = normalizeText(detail?.region);
+  if (region === "aquatic") return "aquatic";
+  if (region === "cenozoic") return "cenozoic";
+  return mapWikiClass(detail?.class || detail?.region);
+}
+
+function mapPaleoRarity(value) {
+  const text = normalizeText(value).replace(/\s+/g, "-");
+  if (text.includes("super-star")) return "super-star";
+  if (text.includes("star")) return "star";
+  if (text.includes("boss")) return "boss";
+  return mapWikiRarity(value);
+}
+
+function getPaleoDnaPrice(hit) {
+  const prices = Array.isArray(hit?.price_buy) ? hit.price_buy : [];
+  return toNumber(prices.find((price) => price.type === "dna")?.amount, 0);
+}
+
+function normalizePaleoImageUrl(uuid) {
+  const key = String(uuid || "").trim();
+  return key ? `${PALEO_CDN_BASE}/jwtg/images/creature/${encodeURIComponent(key)}.png` : "";
+}
+
+function formatPaleoName(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .trim();
+}
+
+function formatPaleoLabel(value) {
+  return formatPaleoName(String(value || "").replace(/-/g, " "));
+}
+
+function formatPaleoCreatures(items, includeLevel = false) {
+  if (!Array.isArray(items)) return "";
+  return items
+    .map((item) => {
+      const name = formatPaleoName(item.name || item.uuid);
+      if (!name) return "";
+      return includeLevel && item.amount ? `${name} LV${item.amount}` : name;
+    })
+    .filter(Boolean)
+    .join(includeLevel ? " x " : ", ");
+}
+
+function formatPaleoDuration(minutes) {
+  const totalMinutes = Math.max(0, toNumber(minutes, 0));
+  if (!totalMinutes) return "";
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const remainingMinutes = totalMinutes % 60;
+  return [
+    days ? `${days}D` : "",
+    hours ? `${hours}H` : "",
+    remainingMinutes ? `${remainingMinutes}M` : "",
+  ].filter(Boolean).join(":");
+}
+
 function mapWikiClass(value) {
   const text = normalizeText(value);
   if (text.includes("carnivore")) return "carnivore";
@@ -1792,6 +2374,9 @@ function mapWikiClass(value) {
 
 function mapWikiRarity(value) {
   const text = normalizeText(value);
+  if (text.includes("super star")) return "super-star";
+  if (text.includes("star")) return "star";
+  if (text.includes("boss")) return "boss";
   if (text.includes("tournament")) return "tournament";
   if (text.includes("vip")) return "vip";
   if (text.includes("super")) return "super-rare";
@@ -1908,7 +2493,34 @@ function deleteDino(id) {
   const dino = getDino(id);
   if (!dino || !confirm(`Apagar "${dino.name}"?`)) return;
   state.dinosaurs = state.dinosaurs.filter((item) => item.id !== id);
+  state.missions = state.missions.map((mission) => ({ ...mission, dinoIds: normalizeMissionDinoIds(mission.dinoIds).filter((dinoId) => dinoId !== id) }));
   saveAndRender("Dino apagado.");
+}
+
+function updateDinoCopyLevel(dinoId, copyId, value) {
+  const dino = getDino(dinoId);
+  if (!dino) return;
+  dino.copies = normalizeDinoCopies(dino.copies).map((copy) => (copy.id === copyId ? { ...copy, level: clampNumber(value, 1, 40, copy.level) } : copy));
+  refreshDinoFromCopies(dino);
+  dino.updatedAt = new Date().toISOString();
+  const completedMissionNames = syncDinoMissions();
+  saveState();
+  renderAll();
+  renderDinoDetailContent(dino);
+  if (completedMissionNames.length) showToast(`Missão concluída: ${completedMissionNames.join(", ")}.`);
+}
+
+function deleteDinoCopy(dinoId, copyId) {
+  const dino = getDino(dinoId);
+  if (!dino) return;
+  dino.copies = normalizeDinoCopies(dino.copies).filter((copy) => copy.id !== copyId);
+  refreshDinoFromCopies(dino);
+  dino.updatedAt = new Date().toISOString();
+  syncDinoMissions();
+  saveState();
+  renderAll();
+  renderDinoDetailContent(dino);
+  showToast("Cópia removida.");
 }
 
 function deleteGoal(id) {
@@ -2573,19 +3185,25 @@ function getSmartInsights() {
 
 function getMissionProgress(mission) {
   const steps = normalizeMissionSteps(mission);
-  if (!steps.length) return mission.status === "done" ? 100 : 0;
-  return Math.round((steps.filter((step) => step.done).length / steps.length) * 100);
+  const parts = [];
+  if (steps.length) parts.push(Math.round((steps.filter((step) => step.done).length / steps.length) * 100));
+  if (normalizeMissionDinoIds(mission.dinoIds).length) parts.push(getMissionDinoProgress(mission));
+  if (!parts.length) return mission.status === "done" ? 100 : 0;
+  return Math.round(parts.reduce((total, value) => total + value, 0) / parts.length);
 }
 
-function autoUpdateMissionStatus(mission, requestedStatus = mission.status) {
+function autoUpdateMissionStatus(mission, requestedStatus = mission.status, options = {}) {
   const steps = normalizeMissionSteps(mission);
-  const progress = getMissionProgress({ ...mission, steps });
-  if (steps.length && progress === 100) {
+  const dinoIds = normalizeMissionDinoIds(mission.dinoIds);
+  const dinoProgress = getMissionDinoProgress(mission, options.dinosaurs);
+  const stepsDone = !steps.length || steps.every((step) => step.done);
+  const dinosDone = !dinoIds.length || dinoProgress === 100;
+  if ((steps.length || dinoIds.length) && stepsDone && dinosDone) {
     mission.status = "done";
     mission.completedAt = mission.completedAt || new Date().toISOString();
     return;
   }
-  if (requestedStatus === "done" && (!steps.length || progress === 100)) {
+  if (requestedStatus === "done" && stepsDone && dinosDone) {
     mission.status = "done";
     mission.completedAt = mission.completedAt || new Date().toISOString();
     return;
@@ -2598,12 +3216,87 @@ function normalizeMissionSteps(mission) {
   return [...(mission?.steps || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 
+function getMissionDinoProgress(mission, dinosaurs = state.dinosaurs) {
+  const dinoIds = normalizeMissionDinoIds(mission.dinoIds);
+  if (!dinoIds.length) return 0;
+  const progresses = dinoIds.map((id) => {
+    const dino = dinosaurs.find((item) => item.id === id);
+    return dino ? getDinoProgress(dino) : 0;
+  });
+  return Math.round(progresses.reduce((total, value) => total + value, 0) / progresses.length);
+}
+
+function getMissionLinkedDinos(mission) {
+  return normalizeMissionDinoIds(mission.dinoIds)
+    .map(getDino)
+    .filter(Boolean);
+}
+
+function getDinoMissions(dinoId) {
+  return state.missions.filter((mission) => normalizeMissionDinoIds(mission.dinoIds).includes(dinoId));
+}
+
+function renderLinkedDinoPill(dino) {
+  const progress = getDinoProgress(dino);
+  return `
+    <button class="linked-dino-pill" type="button" data-action="open-dino-detail" data-id="${escapeHtml(dino.id)}" title="Abrir dino">
+      <span>${escapeHtml(dino.name)}</span>
+      <small>LV${escapeHtml(dino.currentLevel)}/${escapeHtml(dino.targetLevel)} · ${escapeHtml(progress)}%</small>
+    </button>
+  `;
+}
+
+function normalizeMissionDinoIds(value) {
+  const ids = Array.isArray(value) ? value : value ? [value] : [];
+  return ids.map((id) => String(id || "").trim()).filter((id, index, list) => id && list.indexOf(id) === index);
+}
+
+function normalizeDinoCopies(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((copy) => ({
+      id: copy.id || createId(),
+      level: clampNumber(copy.level, 1, 40, 10),
+      createdAt: copy.createdAt || new Date().toISOString(),
+    }))
+    .sort((a, b) => b.level - a.level || a.createdAt.localeCompare(b.createdAt));
+}
+
+function refreshDinoFromCopies(dino) {
+  const copies = normalizeDinoCopies(dino.copies);
+  dino.copies = copies;
+  if (copies.length) dino.currentLevel = Math.max(...copies.map((copy) => copy.level));
+  const resources = calculateDinoResources(dino);
+  if (resources.hasDnaPrice) dino.dnaNeeded = resources.dnaNeeded;
+  if (resources.hasFoodCosts) dino.foodNeeded = resources.foodNeeded;
+}
+
+function syncDinoMissions() {
+  const completed = [];
+  state.missions.forEach((mission) => {
+    const wasDone = mission.status === "done";
+    autoUpdateMissionStatus(mission, mission.status);
+    if (!wasDone && mission.status === "done") completed.push(mission.name);
+  });
+  return completed;
+}
+
 function parseStepLine(line) {
   const [text, ...noteParts] = String(line || "").split("|");
   return {
     text: text.trim(),
     note: noteParts.join("|").trim(),
   };
+}
+
+function getSelectedValues(select) {
+  return Array.from(select?.selectedOptions || []).map((option) => option.value).filter(Boolean);
+}
+
+function setSelectedValues(select, values) {
+  const selected = new Set(values || []);
+  Array.from(select?.options || []).forEach((option) => {
+    option.selected = selected.has(option.value);
+  });
 }
 
 function parseTags(value) {
@@ -2807,6 +3500,7 @@ function normalizeText(value) {
 function safeImageUrl(url) {
   const value = String(url || "");
   if (value.startsWith("https://res.cloudinary.com/")) return value;
+  if (value.startsWith("https://cdn.paleo.gg/")) return value;
   if (value.startsWith("https://static.wikia.nocookie.net/")) return value;
   if (value.startsWith("https://static.wikia.com/")) return value;
   if (value.startsWith("data:image/")) return value;

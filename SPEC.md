@@ -6,7 +6,8 @@ Implementado nesta rodada, sem login/sincronização:
 
 - calendário de eventos
 - sistema de dinossauros
-- integração de dinos com a Jurassic World: The Game Wiki / Fandom
+- integração de dinos com a Jurassic World: The Game Wiki / Fandom e Paleo.gg
+- aba News com últimos dinos lançados do Paleo.gg
 - metas semanais
 - painel inteligente
 - exportação da timeline
@@ -44,24 +45,28 @@ Cada dino possui:
 - nível desejado
 - DNA necessário
 - comida necessária
+- cópias cadastradas e nível de cada cópia
 - missão ligada
 - notas
 - tags
 
-## Integração Com Wiki
+## Integração Com Fontes
 
-Fonte única:
+Fontes:
 
 - Jurassic World: The Game Wiki / Fandom
+- Paleo.gg / Jurassic World: The Game / Creatures
 
 Fluxo:
 
 1. Usuário abre `Novo dino`.
-2. Digita o nome do dinossauro.
-3. Clica em `Buscar na wiki`.
-4. O app consulta a API da Fandom.
-5. O app mostra uma prévia dos dados encontrados.
-6. O usuário clica em `Aplicar dados`.
+2. Escolhe a fonte.
+3. Digita o nome do dinossauro.
+4. Clica em `Buscar fonte`.
+5. O app consulta a fonte escolhida.
+6. No Paleo.gg, a busca fica restrita ao caminho `jurassic-world-the-game/creatures`.
+7. O app mostra uma prévia dos dados encontrados.
+8. O usuário clica em `Aplicar dados`.
 
 Dados preenchidos quando disponíveis:
 
@@ -77,6 +82,21 @@ Dados preenchidos quando disponíveis:
 - moedas por minuto
 - imagem
 - link da fonte
+- descrição traduzida para português quando disponível
+
+## News
+
+A aba News:
+
+- checa o Paleo.gg sempre que a aba é aberta
+- usa a base `jurassic-world-the-game/creatures`
+- lista os últimos dinos lançados por data de lançamento
+- mostra imagem, classe, raridade, stats, preço e link da fonte
+- usa cache local quando a versão da base do Paleo.gg não mudou
+
+## Missões Ligadas A Dinos
+
+Missões podem ter dinos ligados. Quando todos os dinos ligados chegam ao nível desejado, e as etapas manuais também estão concluídas quando existirem, a missão é concluída automaticamente e o app mostra um aviso.
 
 ## Metas Semanais
 
