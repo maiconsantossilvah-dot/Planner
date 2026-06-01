@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jurassic Planner</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <i data-lucide="footprints"></i>
+          </div>
+          <div>
+            <h1>Jurassic Planner</h1>
+            <span id="syncBadge" class="sync-badge">Modo local</span>
+          </div>
+        </div>
+
+        <nav class="view-tabs" aria-label="Navegação principal">
+          <button class="tab-button is-active" type="button" data-view="dashboard" aria-current="page">
+            <i data-lucide="layout-dashboard"></i>
+            <span>Painel</span>
+          </button>
+          <button class="tab-button" type="button" data-view="tasks">
+            <i data-lucide="check-square"></i>
+            <span>Tarefas</span>
+          </button>
+          <button class="tab-button" type="button" data-view="missions">
+            <i data-lucide="flag"></i>
+            <span>Missões</span>
+          </button>
+          <button class="tab-button" type="button" data-view="timeline">
+            <i data-lucide="images"></i>
+            <span>Timeline</span>
+          </button>
+          <button class="tab-button" type="button" data-view="settings">
+            <i data-lucide="settings"></i>
+            <span>Config</span>
+          </button>
+        </nav>
+
+        <label class="global-search" for="searchInput">
+          <i data-lucide="search" aria-hidden="true"></i>
+          <input id="searchInput" type="search" placeholder="Buscar" autocomplete="off" />
+        </label>
+      </header>
+
+      <main class="main-area">
+        <section id="dashboardView" class="view is-active" data-view-panel="dashboard">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Visão geral</p>
+              <h2>Painel do parque</h2>
+            </div>
+            <button id="newTaskFromDashboard" class="primary-button" type="button">
+              <i data-lucide="plus"></i>
+              <span>Nova tarefa</span>
+            </button>
+          </div>
+
+          <div class="summary-grid" aria-label="Resumo">
+            <article class="metric metric-green">
+              <span>Tarefas abertas</span>
+              <strong id="openTaskCount">0</strong>
+            </article>
+            <article class="metric metric-amber">
+              <span>Missões ativas</span>
+              <strong id="activeMissionCount">0</strong>
+            </article>
+            <article class="metric metric-cyan">
+              <span>Prints salvos</span>
+              <strong id="printCount">0</strong>
+            </article>
+            <article class="metric metric-red">
+              <span>Prioridade alta</span>
+              <strong id="highPriorityCount">0</strong>
+            </article>
+          </div>
+
+          <div class="workspace-grid">
+            <section class="tool-panel">
+              <div class="panel-heading">
+                <h3>Adicionar rápido</h3>
+              </div>
+              <form id="quickTaskForm" class="quick-form">
+                <input name="title" type="text" placeholder="Ex.: batalhar no evento" autocomplete="off" required />
+                <select name="category" aria-label="Categoria">
+                  <option value="event">Evento</option>
+                  <option value="dino">Dinossauro</option>
+                  <option value="battle">Batalha</option>
+                  <option value="park">Parque</option>
+                  <option value="resources">Recursos</option>
+                  <option value="other">Outro</option>
+                </select>
+                <select name="priority" aria-label="Prioridade">
+                  <option value="medium">Média</option>
+                  <option value="high">Alta</option>
+                  <option value="low">Baixa</option>
+                </select>
+                <button class="primary-button" type="submit" title="Adicionar tarefa">
+                  <i data-lucide="plus"></i>
+                  <span>Adicionar</span>
+                </button>
+              </form>
+            </section>
+
+            <section class="tool-panel">
+              <div class="panel-heading">
+                <h3>Fila de hoje</h3>
+              </div>
+              <div id="dashboardTaskList" class="compact-list"></div>
+            </section>
+
+            <section class="tool-panel">
+              <div class="panel-heading">
+                <h3>Missões em andamento</h3>
+              </div>
+              <div id="dashboardMissionList" class="compact-list"></div>
+            </section>
+
+            <section class="tool-panel">
+              <div class="panel-heading">
+                <h3>Últimos prints</h3>
+              </div>
+              <div id="dashboardTimelineList" class="mini-gallery"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="tasksView" class="view" data-view-panel="tasks">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Lista</p>
+              <h2>Tarefas</h2>
+            </div>
+            <button id="newTaskButton" class="primary-button" type="button">
+              <i data-lucide="plus"></i>
+              <span>Nova tarefa</span>
+            </button>
+          </div>
+
+          <div class="filter-bar">
+            <select id="taskStatusFilter" aria-label="Filtrar status">
+              <option value="all">Todos os status</option>
+              <option value="pending">Pendente</option>
+              <option value="doing">Fazendo</option>
+              <option value="done">Concluída</option>
+            </select>
+            <select id="taskCategoryFilter" aria-label="Filtrar categoria">
+              <option value="all">Todas as categorias</option>
+              <option value="dino">Dinossauro</option>
+              <option value="event">Evento</option>
+              <option value="battle">Batalha</option>
+              <option value="park">Parque</option>
+              <option value="resources">Recursos</option>
+              <option value="other">Outro</option>
+            </select>
+          </div>
+
+          <div id="taskList" class="item-list"></div>
+        </section>
+
+        <section id="missionsView" class="view" data-view-panel="missions">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Objetivos</p>
+              <h2>Missões</h2>
+            </div>
+            <button id="newMissionButton" class="primary-button" type="button">
+              <i data-lucide="plus"></i>
+              <span>Nova missão</span>
+            </button>
+          </div>
+
+          <div class="filter-bar">
+            <select id="missionStatusFilter" aria-label="Filtrar missões">
+              <option value="all">Todos os status</option>
+              <option value="planned">Planejada</option>
+              <option value="doing">Em andamento</option>
+              <option value="done">Concluída</option>
+            </select>
+          </div>
+
+          <div id="missionList" class="mission-list"></div>
+        </section>
+
+        <section id="timelineView" class="view" data-view-panel="timeline">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Registro</p>
+              <h2>Linha do tempo</h2>
+            </div>
+          </div>
+
+          <section class="upload-panel">
+            <form id="timelineForm" class="timeline-form">
+              <label class="image-picker" for="timelineImage">
+                <input id="timelineImage" name="image" type="file" accept="image/*" />
+                <span id="imagePreview" class="image-preview">
+                  <i data-lucide="image-plus"></i>
+                </span>
+              </label>
+
+              <div class="timeline-fields">
+                <div class="form-row two-cols">
+                  <label>
+                    <span>Título</span>
+                    <input name="title" type="text" placeholder="Ex.: primeiro lendário nível 40" required />
+                  </label>
+                  <label>
+                    <span>Tipo</span>
+                    <select name="type">
+                      <option value="achievement">Conquista</option>
+                      <option value="mission">Missão</option>
+                      <option value="battle">Batalha</option>
+                      <option value="evolution">Evolução</option>
+                      <option value="hybrid">Híbrido</option>
+                      <option value="park">Parque</option>
+                      <option value="event">Evento</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-row two-cols">
+                  <label>
+                    <span>Data</span>
+                    <input name="date" type="date" />
+                  </label>
+                  <label>
+                    <span>Missão ligada</span>
+                    <select id="timelineMissionSelect" name="missionId">
+                      <option value="">Sem ligação</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  <span>Notas</span>
+                  <textarea name="description" rows="3" placeholder="Detalhe rápido"></textarea>
+                </label>
+                <button id="saveTimelineButton" class="primary-button" type="submit">
+                  <i data-lucide="upload-cloud"></i>
+                  <span>Salvar registro</span>
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <div class="filter-bar">
+            <select id="timelineTypeFilter" aria-label="Filtrar timeline">
+              <option value="all">Todos os tipos</option>
+              <option value="achievement">Conquista</option>
+              <option value="mission">Missão</option>
+              <option value="battle">Batalha</option>
+              <option value="evolution">Evolução</option>
+              <option value="hybrid">Híbrido</option>
+              <option value="park">Parque</option>
+              <option value="event">Evento</option>
+            </select>
+          </div>
+
+          <div id="timelineList" class="timeline-list"></div>
+        </section>
+
+        <section id="settingsView" class="view" data-view-panel="settings">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Cloudinary</p>
+              <h2>Configurações</h2>
+            </div>
+          </div>
+
+          <section class="settings-grid">
+            <form id="settingsForm" class="settings-panel">
+              <label>
+                <span>Cloud name</span>
+                <input name="cloudName" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Upload preset</span>
+                <input name="uploadPreset" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Pasta</span>
+                <input name="folder" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <button class="primary-button" type="submit">
+                <i data-lucide="save"></i>
+                <span>Salvar config</span>
+              </button>
+            </form>
+
+            <div class="settings-panel">
+              <div class="panel-heading">
+                <h3>Backup</h3>
+              </div>
+              <div class="action-row">
+                <button id="exportButton" class="secondary-button" type="button">
+                  <i data-lucide="download"></i>
+                  <span>Exportar</span>
+                </button>
+                <button id="importButton" class="secondary-button" type="button">
+                  <i data-lucide="upload"></i>
+                  <span>Importar</span>
+                </button>
+                <button id="clearDataButton" class="danger-button" type="button">
+                  <i data-lucide="trash-2"></i>
+                  <span>Limpar</span>
+                </button>
+              </div>
+              <input id="importFile" type="file" accept="application/json" hidden />
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="taskDialog" class="app-dialog">
+      <form id="taskForm" class="dialog-card">
+        <input name="id" type="hidden" />
+        <div class="dialog-heading">
+          <h2 id="taskDialogTitle">Nova tarefa</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label>
+          <span>Título</span>
+          <input name="title" type="text" required autocomplete="off" />
+        </label>
+        <label>
+          <span>Descrição</span>
+          <textarea name="description" rows="3"></textarea>
+        </label>
+        <div class="form-row two-cols">
+          <label>
+            <span>Status</span>
+            <select name="status">
+              <option value="pending">Pendente</option>
+              <option value="doing">Fazendo</option>
+              <option value="done">Concluída</option>
+            </select>
+          </label>
+          <label>
+            <span>Prioridade</span>
+            <select name="priority">
+              <option value="medium">Média</option>
+              <option value="high">Alta</option>
+              <option value="low">Baixa</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row two-cols">
+          <label>
+            <span>Categoria</span>
+            <select name="category">
+              <option value="dino">Dinossauro</option>
+              <option value="event">Evento</option>
+              <option value="battle">Batalha</option>
+              <option value="park">Parque</option>
+              <option value="resources">Recursos</option>
+              <option value="other">Outro</option>
+            </select>
+          </label>
+          <label>
+            <span>Prazo</span>
+            <input name="dueDate" type="date" />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-button" type="submit">
+            <i data-lucide="save"></i>
+            <span>Salvar</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="missionDialog" class="app-dialog">
+      <form id="missionForm" class="dialog-card">
+        <input name="id" type="hidden" />
+        <div class="dialog-heading">
+          <h2 id="missionDialogTitle">Nova missão</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label>
+          <span>Nome</span>
+          <input name="name" type="text" required autocomplete="off" />
+        </label>
+        <label>
+          <span>Descrição</span>
+          <textarea name="description" rows="3"></textarea>
+        </label>
+        <div class="form-row two-cols">
+          <label>
+            <span>Status</span>
+            <select name="status">
+              <option value="planned">Planejada</option>
+              <option value="doing">Em andamento</option>
+              <option value="done">Concluída</option>
+            </select>
+          </label>
+          <label>
+            <span>Prazo</span>
+            <input name="dueDate" type="date" />
+          </label>
+        </div>
+        <label>
+          <span>Etapas</span>
+          <textarea name="steps" rows="5" placeholder="Uma etapa por linha"></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-button" type="submit">
+            <i data-lucide="save"></i>
+            <span>Salvar</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
