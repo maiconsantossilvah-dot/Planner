@@ -345,7 +345,7 @@ function hydrateCalendarEvent(event) {
 function hydrateDino(dino) {
   return {
     id: dino.id || createId(),
-    name: dino.name || "Dino sem nome",
+    name: stripText(dino.name) || "Dino sem nome",
     classType: dino.classType || "carnivore",
     rarity: dino.rarity || "common",
     currentLevel: toNumber(dino.currentLevel, 1),
@@ -1110,7 +1110,7 @@ function handleMissionSubmit(event) {
 
   const mission = {
     id,
-    name: String(data.name || "").trim(),
+    name: stripText(data.name),
     description: String(data.description || "").trim(),
     status: data.status || "planned",
     priority: data.priority || "medium",
@@ -1169,7 +1169,7 @@ function handleDinoSubmit(event) {
   const existing = getDino(id);
   const dino = {
     id,
-    name: String(data.name || "").trim(),
+    name: stripText(data.name) || "Dino sem nome",
     classType: data.classType || "carnivore",
     rarity: data.rarity || "common",
     currentLevel: clampNumber(data.currentLevel, 1, 40, 1),
@@ -2479,7 +2479,10 @@ function renderTagRow(tags) {
 }
 
 function stripText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractFirstNumber(value) {
