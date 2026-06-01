@@ -18,9 +18,16 @@ Também é possível abrir `index.html` direto no navegador.
 - tarefas com prioridade, categoria, prazo e recorrência
 - filtro de tarefas de hoje, atrasadas e recorrentes
 - missões com etapas, notas, prioridade, categoria e progresso automático
+- calendário com eventos do jogo, tarefas, missões e metas por data
+- sistema de dinossauros com classe, raridade, nível alvo, DNA/comida e missão ligada
+- metas semanais com progresso
+- painel inteligente com alertas de atraso, metas e objetivos quase prontos
 - linha do tempo com múltiplos prints por registro
 - edição de registros da timeline
 - visualizador grande de prints
+- galeria de todos os prints com filtros
+- exportação da timeline em HTML
+- tags personalizadas em tarefas, missões, timeline, dinos, metas e eventos
 - configuração e teste do Cloudinary
 - backup JSON com prévia de importação
 - limpeza apenas de prints locais

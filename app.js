@@ -1,6 +1,6 @@
 const STORAGE_KEY = "jurassic-planner-v1";
 const AUTO_BACKUP_KEY = "jurassic-planner-auto-backup-v2";
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const categoryLabels = {
   dino: "Dinossauro",
@@ -45,6 +45,35 @@ const timelineTypeLabels = {
   event: "Evento",
 };
 
+const calendarTypeLabels = {
+  "game-event": "Evento do jogo",
+  task: "Tarefa",
+  mission: "Missão",
+  goal: "Meta",
+  resources: "Recursos",
+  battle: "Batalha",
+  other: "Outro",
+};
+
+const dinoClassLabels = {
+  carnivore: "Carnívoro",
+  herbivore: "Herbívoro",
+  pterosaur: "Pterossauro",
+  amphibian: "Anfíbio",
+  aquatic: "Aquático",
+  cenozoic: "Cenozóico",
+  hybrid: "Híbrido",
+};
+
+const dinoRarityLabels = {
+  common: "Comum",
+  rare: "Raro",
+  "super-rare": "Super raro",
+  legendary: "Lendário",
+  vip: "VIP",
+  tournament: "Torneio",
+};
+
 let state = hydrateState(loadStoredState());
 let pendingImportState = null;
 let activeView = "dashboard";
@@ -75,6 +104,9 @@ function bindEvents() {
   $("#quickTaskForm").addEventListener("submit", handleQuickTaskSubmit);
   $("#taskForm").addEventListener("submit", handleTaskSubmit);
   $("#missionForm").addEventListener("submit", handleMissionSubmit);
+  $("#calendarForm").addEventListener("submit", handleCalendarSubmit);
+  $("#dinoForm").addEventListener("submit", handleDinoSubmit);
+  $("#goalForm").addEventListener("submit", handleGoalSubmit);
   $("#timelineForm").addEventListener("submit", handleTimelineSubmit);
   $("#settingsForm").addEventListener("submit", handleSettingsSubmit);
   $("#timelineImage").addEventListener("change", updateImagePreview);
@@ -82,9 +114,13 @@ function bindEvents() {
   $("#newTaskButton").addEventListener("click", () => openTaskDialog());
   $("#newTaskFromDashboard").addEventListener("click", () => openTaskDialog());
   $("#newMissionButton").addEventListener("click", () => openMissionDialog());
+  $("#newCalendarEventButton").addEventListener("click", () => openCalendarDialog());
+  $("#newDinoButton").addEventListener("click", () => openDinoDialog());
+  $("#newGoalButton").addEventListener("click", () => openGoalDialog());
   $("#resetRecurringButton").addEventListener("click", resetRecurringTasks);
   $("#resetRecurringFromTasks").addEventListener("click", resetRecurringTasks);
   $("#cancelTimelineEdit").addEventListener("click", resetTimelineForm);
+  $("#exportTimelineButton").addEventListener("click", exportTimelineHtml);
   $("#testCloudinaryButton").addEventListener("click", testCloudinary);
   $("#exportButton").addEventListener("click", exportBackup);
   $("#importButton").addEventListener("click", () => $("#importFile").click());
@@ -106,9 +142,19 @@ function bindEvents() {
     "timelineSort",
     "timelineDateFrom",
     "timelineDateTo",
+    "calendarTypeFilter",
+    "calendarDateFrom",
+    "calendarDateTo",
+    "dinoClassFilter",
+    "dinoRarityFilter",
+    "goalStatusFilter",
+    "galleryTypeFilter",
+    "galleryMissionFilter",
+    "galleryTagFilter",
   ].forEach((id) => {
     $(`#${id}`).addEventListener("change", renderAll);
   });
+  $("#galleryTagFilter").addEventListener("input", renderAll);
 
   document.addEventListener("click", handleDocumentClick);
   document.addEventListener("change", handleDocumentChange);
@@ -132,6 +178,13 @@ function handleDocumentClick(event) {
   if (action === "delete-task") deleteTask(id);
   if (action === "edit-mission") openMissionDialog(getMission(id));
   if (action === "delete-mission") deleteMission(id);
+  if (action === "edit-calendar") openCalendarDialog(getCalendarEvent(id));
+  if (action === "delete-calendar") deleteCalendarEvent(id);
+  if (action === "edit-dino") openDinoDialog(getDino(id));
+  if (action === "delete-dino") deleteDino(id);
+  if (action === "edit-goal") openGoalDialog(getGoal(id));
+  if (action === "delete-goal") deleteGoal(id);
+  if (action === "goal-step") updateGoalProgress(id, Number(actionButton.dataset.amount || 0));
   if (action === "delete-step") deleteMissionStep(missionId, stepId);
   if (action === "move-step-up") moveMissionStep(missionId, stepId, -1);
   if (action === "move-step-down") moveMissionStep(missionId, stepId, 1);
@@ -175,6 +228,9 @@ function createEmptyState() {
     schemaVersion: SCHEMA_VERSION,
     tasks: [],
     missions: [],
+    calendarEvents: [],
+    dinosaurs: [],
+    goals: [],
     timeline: [],
     settings: {
       cloudName: "",
@@ -206,6 +262,9 @@ function hydrateState(value) {
     schemaVersion: SCHEMA_VERSION,
     tasks: Array.isArray(source?.tasks) ? source.tasks.map(hydrateTask) : [],
     missions: Array.isArray(source?.missions) ? source.missions.map(hydrateMission) : [],
+    calendarEvents: Array.isArray(source?.calendarEvents) ? source.calendarEvents.map(hydrateCalendarEvent) : [],
+    dinosaurs: Array.isArray(source?.dinosaurs) ? source.dinosaurs.map(hydrateDino) : [],
+    goals: Array.isArray(source?.goals) ? source.goals.map(hydrateGoal) : [],
     timeline: Array.isArray(source?.timeline) ? source.timeline.map(hydrateTimelineItem) : [],
     settings: {
       ...base.settings,
@@ -231,6 +290,7 @@ function hydrateTask(task) {
     category: task.category || "other",
     dueDate: task.dueDate || "",
     recurrence: task.recurrence || "none",
+    tags: normalizeTags(task.tags),
     completedAt: task.completedAt || "",
     createdAt: task.createdAt || new Date().toISOString(),
     updatedAt: task.updatedAt || "",
@@ -257,9 +317,59 @@ function hydrateMission(mission) {
     category: mission.category || "other",
     dueDate: mission.dueDate || "",
     steps,
+    tags: normalizeTags(mission.tags),
     createdAt: mission.createdAt || new Date().toISOString(),
     updatedAt: mission.updatedAt || "",
     completedAt: mission.completedAt || "",
+  };
+}
+
+function hydrateCalendarEvent(event) {
+  return {
+    id: event.id || createId(),
+    title: event.title || "Evento sem título",
+    description: event.description || "",
+    type: event.type || "game-event",
+    date: event.date || todayIso(),
+    tags: normalizeTags(event.tags),
+    createdAt: event.createdAt || new Date().toISOString(),
+    updatedAt: event.updatedAt || "",
+  };
+}
+
+function hydrateDino(dino) {
+  return {
+    id: dino.id || createId(),
+    name: dino.name || "Dino sem nome",
+    classType: dino.classType || "carnivore",
+    rarity: dino.rarity || "common",
+    currentLevel: toNumber(dino.currentLevel, 1),
+    targetLevel: toNumber(dino.targetLevel, 40),
+    dnaNeeded: toNumber(dino.dnaNeeded, 0),
+    foodNeeded: toNumber(dino.foodNeeded, 0),
+    missionId: dino.missionId || "",
+    notes: dino.notes || "",
+    tags: normalizeTags(dino.tags),
+    createdAt: dino.createdAt || new Date().toISOString(),
+    updatedAt: dino.updatedAt || "",
+  };
+}
+
+function hydrateGoal(goal) {
+  const target = Math.max(1, toNumber(goal.target, 1));
+  const current = Math.max(0, toNumber(goal.current, 0));
+  return {
+    id: goal.id || createId(),
+    title: goal.title || "Meta sem título",
+    current,
+    target,
+    unit: goal.unit || "",
+    dueDate: goal.dueDate || "",
+    notes: goal.notes || "",
+    tags: normalizeTags(goal.tags),
+    createdAt: goal.createdAt || new Date().toISOString(),
+    updatedAt: goal.updatedAt || "",
+    completedAt: current >= target ? goal.completedAt || new Date().toISOString() : "",
   };
 }
 
@@ -286,6 +396,7 @@ function hydrateTimelineItem(item) {
     date: item.date || todayIso(),
     missionId: item.missionId || "",
     taskId: item.taskId || "",
+    tags: normalizeTags(item.tags),
     images: Array.isArray(item.images) ? item.images.map(hydrateImage) : legacyImage,
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: item.updatedAt || "",
@@ -353,8 +464,12 @@ function renderAll() {
   renderDashboard();
   renderTasks();
   renderMissions();
+  renderCalendar();
+  renderDinosaurs();
+  renderGoals();
   renderTimeline();
   renderTimelineMissionOptions();
+  renderGallery();
   fillSettingsForm();
   renderCloudinaryStatus();
   renderBackupStatus();
@@ -387,6 +502,13 @@ function renderDashboard() {
   $("#activeMissionCount").textContent = activeMissions.length;
   $("#printCount").textContent = printCount;
   $("#overdueTaskCount").textContent = overdueTasks.length;
+  $("#dinoCount").textContent = state.dinosaurs.length;
+  $("#activeGoalCount").textContent = state.goals.filter((goal) => !isGoalDone(goal)).length;
+
+  const insights = getSmartInsights();
+  $("#dashboardInsightList").innerHTML = insights.length
+    ? insights.map(renderInsight).join("")
+    : emptyState("sparkles", "Sem alertas importantes agora");
 
   const dashboardTasks = [...openTasks].sort(sortTasks).slice(0, 5);
   $("#dashboardTaskList").innerHTML = dashboardTasks.length
@@ -419,7 +541,7 @@ function renderTasks() {
       if (dateFilter === "recurring") return task.recurrence && task.recurrence !== "none";
       return true;
     })
-    .filter((task) => matchesSearch([task.title, task.description, categoryLabels[task.category], taskStatusLabels[task.status], recurrenceLabels[task.recurrence]]))
+    .filter((task) => matchesSearch([task.title, task.description, categoryLabels[task.category], taskStatusLabels[task.status], recurrenceLabels[task.recurrence], ...task.tags]))
     .sort(sortTasks);
 
   list.innerHTML = tasks.length ? tasks.map(renderTaskCard).join("") : emptyState("clipboard-list", "Nenhuma tarefa encontrada");
@@ -434,11 +556,57 @@ function renderMissions() {
     .filter((mission) => categoryFilter === "all" || mission.category === categoryFilter)
     .filter((mission) => {
       const stepText = normalizeMissionSteps(mission).map((step) => `${step.text} ${step.note}`).join(" ");
-      return matchesSearch([mission.name, mission.description, missionStatusLabels[mission.status], categoryLabels[mission.category], stepText]);
+      return matchesSearch([mission.name, mission.description, missionStatusLabels[mission.status], categoryLabels[mission.category], stepText, ...mission.tags]);
     })
     .sort(sortMissions);
 
   list.innerHTML = missions.length ? missions.map(renderMissionCard).join("") : emptyState("flag", "Nenhuma missão encontrada");
+}
+
+function renderCalendar() {
+  const list = $("#calendarList");
+  const typeFilter = $("#calendarTypeFilter").value;
+  const dateFrom = $("#calendarDateFrom").value;
+  const dateTo = $("#calendarDateTo").value;
+  const items = getAgendaItems()
+    .filter((item) => typeFilter === "all" || item.type === typeFilter)
+    .filter((item) => !dateFrom || item.date >= dateFrom)
+    .filter((item) => !dateTo || item.date <= dateTo)
+    .filter((item) => matchesSearch([item.title, item.description, calendarTypeLabels[item.type], ...(item.tags || [])]))
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  list.innerHTML = items.length ? items.map(renderAgendaItem).join("") : emptyState("calendar-days", "Nada no calendário");
+}
+
+function renderDinosaurs() {
+  const list = $("#dinoList");
+  const classFilter = $("#dinoClassFilter").value;
+  const rarityFilter = $("#dinoRarityFilter").value;
+  const dinos = state.dinosaurs
+    .filter((dino) => classFilter === "all" || dino.classType === classFilter)
+    .filter((dino) => rarityFilter === "all" || dino.rarity === rarityFilter)
+    .filter((dino) => {
+      const mission = dino.missionId ? getMission(dino.missionId) : null;
+      return matchesSearch([dino.name, dino.notes, dinoClassLabels[dino.classType], dinoRarityLabels[dino.rarity], mission?.name, ...dino.tags]);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  list.innerHTML = dinos.length ? dinos.map(renderDinoCard).join("") : emptyState("egg", "Nenhum dino cadastrado");
+}
+
+function renderGoals() {
+  const list = $("#goalList");
+  const statusFilter = $("#goalStatusFilter").value;
+  const goals = state.goals
+    .filter((goal) => {
+      if (statusFilter === "active") return !isGoalDone(goal);
+      if (statusFilter === "done") return isGoalDone(goal);
+      return true;
+    })
+    .filter((goal) => matchesSearch([goal.title, goal.notes, goal.unit, ...goal.tags]))
+    .sort(sortGoals);
+
+  list.innerHTML = goals.length ? goals.map(renderGoalCard).join("") : emptyState("target", "Nenhuma meta cadastrada");
 }
 
 function renderTimeline() {
@@ -456,7 +624,7 @@ function renderTimeline() {
     .filter((item) => !dateTo || item.date <= dateTo)
     .filter((item) => {
       const mission = item.missionId ? getMission(item.missionId) : null;
-      return matchesSearch([item.title, item.description, timelineTypeLabels[item.type], mission?.name]);
+      return matchesSearch([item.title, item.description, timelineTypeLabels[item.type], mission?.name, ...item.tags]);
     })
     .sort((a, b) => (sort === "asc" ? (a.date || "").localeCompare(b.date || "") : (b.date || "").localeCompare(a.date || "")));
 
@@ -466,14 +634,37 @@ function renderTimeline() {
 function renderTimelineMissionOptions() {
   const formSelect = $("#timelineMissionSelect");
   const filterSelect = $("#timelineMissionFilter");
+  const galleryMissionSelect = $("#galleryMissionFilter");
+  const dinoMissionSelect = $("#dinoMissionSelect");
   const formValue = formSelect.value;
   const filterValue = filterSelect.value;
+  const galleryValue = galleryMissionSelect.value;
+  const dinoValue = dinoMissionSelect.value;
   const options = state.missions.map((mission) => `<option value="${escapeHtml(mission.id)}">${escapeHtml(mission.name)}</option>`).join("");
 
   formSelect.innerHTML = `<option value="">Sem ligação</option>${options}`;
   filterSelect.innerHTML = `<option value="all">Todas as missões</option>${options}`;
+  galleryMissionSelect.innerHTML = `<option value="all">Todas as missões</option>${options}`;
+  dinoMissionSelect.innerHTML = `<option value="">Sem ligação</option>${options}`;
   formSelect.value = state.missions.some((mission) => mission.id === formValue) ? formValue : "";
   filterSelect.value = state.missions.some((mission) => mission.id === filterValue) ? filterValue : "all";
+  galleryMissionSelect.value = state.missions.some((mission) => mission.id === galleryValue) ? galleryValue : "all";
+  dinoMissionSelect.value = state.missions.some((mission) => mission.id === dinoValue) ? dinoValue : "";
+}
+
+function renderGallery() {
+  const typeFilter = $("#galleryTypeFilter").value;
+  const missionFilter = $("#galleryMissionFilter").value;
+  const tagFilter = normalizeText($("#galleryTagFilter").value);
+  const images = state.timeline
+    .filter((item) => typeFilter === "all" || item.type === typeFilter)
+    .filter((item) => missionFilter === "all" || item.missionId === missionFilter)
+    .filter((item) => !tagFilter || normalizeText((item.tags || []).join(" ")).includes(tagFilter))
+    .filter((item) => matchesSearch([item.title, item.description, timelineTypeLabels[item.type], ...(item.tags || [])]))
+    .flatMap((item) => getTimelineImages(item).map((image) => ({ item, image })))
+    .sort((a, b) => (b.item.date || "").localeCompare(a.item.date || ""));
+
+  $("#galleryGrid").innerHTML = images.length ? images.map(renderGalleryCard).join("") : emptyState("image", "Nenhum print encontrado");
 }
 
 function renderTaskCard(task) {
@@ -501,6 +692,7 @@ function renderTaskCard(task) {
           ${recurrence}
           ${task.completedAt ? `<span class="status-pill">Concluída ${escapeHtml(formatDateTime(task.completedAt))}</span>` : ""}
         </div>
+        ${renderTagRow(task.tags)}
       </div>
       <div class="card-actions">
         <button class="icon-button" type="button" data-action="edit-task" data-id="${escapeHtml(task.id)}" title="Editar">
@@ -552,6 +744,7 @@ function renderMissionCard(mission) {
       <div class="progress-track" aria-label="Progresso ${progress}%">
         <div class="progress-fill" style="width: ${progress}%"></div>
       </div>
+      ${renderTagRow(mission.tags)}
       ${stepList}
       <form class="add-step-form" data-mission-id="${escapeHtml(mission.id)}">
         <input type="text" placeholder="Nova etapa | nota opcional" autocomplete="off" />
@@ -589,6 +782,107 @@ function renderMissionStep(missionId, step, index, total) {
   `;
 }
 
+function renderAgendaItem(item) {
+  const sourceClass = item.source ? `source-${item.source}` : "";
+  const actions =
+    item.source === "calendar"
+      ? `<button class="icon-button" type="button" data-action="edit-calendar" data-id="${escapeHtml(item.id)}" title="Editar"><i data-lucide="pencil"></i></button>
+         <button class="icon-button" type="button" data-action="delete-calendar" data-id="${escapeHtml(item.id)}" title="Apagar"><i data-lucide="trash-2"></i></button>`
+      : "";
+
+  return `
+    <article class="agenda-item ${sourceClass}">
+      <div class="agenda-date">
+        <strong>${escapeHtml(formatDay(item.date))}</strong>
+        <span>${escapeHtml(formatMonth(item.date))}</span>
+      </div>
+      <div class="item-main">
+        <div class="item-title-row">
+          <h3>${escapeHtml(item.title)}</h3>
+          <span class="tag">${escapeHtml(calendarTypeLabels[item.type] || item.type)}</span>
+        </div>
+        ${item.description ? `<p class="item-description">${escapeHtml(item.description)}</p>` : ""}
+        ${renderTagRow(item.tags)}
+      </div>
+      <div class="card-actions">${actions}</div>
+    </article>
+  `;
+}
+
+function renderDinoCard(dino) {
+  const mission = dino.missionId ? getMission(dino.missionId) : null;
+  const progress = getDinoProgress(dino);
+  return `
+    <article class="dino-card">
+      <div class="item-title-row">
+        <h3>${escapeHtml(dino.name)}</h3>
+        <span class="tag">${escapeHtml(dinoClassLabels[dino.classType] || dino.classType)}</span>
+        <span class="status-pill">${escapeHtml(dinoRarityLabels[dino.rarity] || dino.rarity)}</span>
+      </div>
+      <div class="progress-track" aria-label="Progresso ${progress}%">
+        <div class="progress-fill" style="width: ${progress}%"></div>
+      </div>
+      <div class="meta-grid">
+        <span>Nível ${escapeHtml(dino.currentLevel)} / ${escapeHtml(dino.targetLevel)}</span>
+        <span>DNA: ${escapeHtml(formatNumber(dino.dnaNeeded))}</span>
+        <span>Comida: ${escapeHtml(formatNumber(dino.foodNeeded))}</span>
+      </div>
+      ${mission ? `<p class="item-description">Missão: ${escapeHtml(mission.name)}</p>` : ""}
+      ${dino.notes ? `<p class="item-description">${escapeHtml(dino.notes)}</p>` : ""}
+      ${renderTagRow(dino.tags)}
+      <div class="card-actions">
+        <button class="icon-button" type="button" data-action="edit-dino" data-id="${escapeHtml(dino.id)}" title="Editar">
+          <i data-lucide="pencil"></i>
+        </button>
+        <button class="icon-button" type="button" data-action="delete-dino" data-id="${escapeHtml(dino.id)}" title="Apagar">
+          <i data-lucide="trash-2"></i>
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderGoalCard(goal) {
+  const progress = getGoalProgress(goal);
+  const done = isGoalDone(goal);
+  const dueDate = goal.dueDate ? `<span class="tag ${isGoalOverdue(goal) ? "tag-danger" : ""}">${escapeHtml(formatDate(goal.dueDate))}</span>` : "";
+  return `
+    <article class="goal-card ${done ? "is-complete" : ""}">
+      <div class="mission-top">
+        <div>
+          <div class="item-title-row">
+            <h3>${escapeHtml(goal.title)}</h3>
+            <span class="status-pill ${done ? "status-done" : "status-doing"}">${done ? "Concluída" : "Ativa"}</span>
+            ${dueDate}
+          </div>
+          ${goal.notes ? `<p class="item-description">${escapeHtml(goal.notes)}</p>` : ""}
+        </div>
+        <div class="card-actions">
+          <button class="icon-button" type="button" data-action="goal-step" data-id="${escapeHtml(goal.id)}" data-amount="1" title="Somar 1">
+            <i data-lucide="plus"></i>
+          </button>
+          <button class="icon-button" type="button" data-action="goal-step" data-id="${escapeHtml(goal.id)}" data-amount="-1" title="Subtrair 1">
+            <i data-lucide="minus"></i>
+          </button>
+          <button class="icon-button" type="button" data-action="edit-goal" data-id="${escapeHtml(goal.id)}" title="Editar">
+            <i data-lucide="pencil"></i>
+          </button>
+          <button class="icon-button" type="button" data-action="delete-goal" data-id="${escapeHtml(goal.id)}" title="Apagar">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
+      </div>
+      <div class="progress-track" aria-label="Progresso ${progress}%">
+        <div class="progress-fill" style="width: ${progress}%"></div>
+      </div>
+      <div class="meta-row">
+        <span class="tag">${escapeHtml(formatNumber(goal.current))} / ${escapeHtml(formatNumber(goal.target))} ${escapeHtml(goal.unit || "")}</span>
+      </div>
+      ${renderTagRow(goal.tags)}
+    </article>
+  `;
+}
+
 function renderTimelineCard(item) {
   const mission = item.missionId ? getMission(item.missionId) : null;
   const images = getTimelineImages(item);
@@ -622,6 +916,7 @@ function renderTimelineCard(item) {
           <span class="source-pill ${sourceClass}">${escapeHtml(source)}</span>
           ${images.length ? `<span class="status-pill">${images.length} print${images.length > 1 ? "s" : ""}</span>` : ""}
         </div>
+        ${renderTagRow(item.tags)}
       </div>
       <div class="card-actions">
         ${copyButton}
@@ -632,6 +927,26 @@ function renderTimelineCard(item) {
         <button class="icon-button" type="button" data-action="delete-timeline" data-id="${escapeHtml(item.id)}" title="Apagar">
           <i data-lucide="trash-2"></i>
         </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderGalleryCard(entry) {
+  const mission = entry.item.missionId ? getMission(entry.item.missionId) : null;
+  return `
+    <article class="gallery-card">
+      <button type="button" class="gallery-media" data-action="open-image" data-id="${escapeHtml(entry.item.id)}" data-image-id="${escapeHtml(entry.image.id)}">
+        <img src="${escapeHtml(entry.image.url)}" alt="${escapeHtml(entry.item.title)}" loading="lazy" />
+      </button>
+      <div class="gallery-copy">
+        <h3>${escapeHtml(entry.item.title)}</h3>
+        <div class="meta-row">
+          <span class="tag">${escapeHtml(timelineTypeLabels[entry.item.type] || entry.item.type)}</span>
+          <span class="status-pill">${escapeHtml(formatDate(entry.item.date))}</span>
+          ${mission ? `<span class="tag">${escapeHtml(mission.name)}</span>` : ""}
+        </div>
+        ${renderTagRow(entry.item.tags)}
       </div>
     </article>
   `;
@@ -669,6 +984,15 @@ function renderCompactMission(mission) {
     <article class="compact-item">
       <strong>${escapeHtml(mission.name)}</strong>
       <span>${getMissionProgress(mission)}% · ${escapeHtml(missionStatusLabels[mission.status] || mission.status)} · ${escapeHtml(priorityLabels[mission.priority] || mission.priority)}</span>
+    </article>
+  `;
+}
+
+function renderInsight(insight) {
+  return `
+    <article class="compact-item insight-item">
+      <strong>${escapeHtml(insight.title)}</strong>
+      <span>${escapeHtml(insight.detail)}</span>
     </article>
   `;
 }
@@ -720,6 +1044,7 @@ function handleTaskSubmit(event) {
     category: data.category || "other",
     dueDate: data.dueDate || "",
     recurrence: data.recurrence || "none",
+    tags: parseTags(data.tags),
     completedAt: data.status === "done" ? existing?.completedAt || new Date().toISOString() : "",
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -765,6 +1090,7 @@ function handleMissionSubmit(event) {
     category: data.category || "other",
     dueDate: data.dueDate || "",
     steps,
+    tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     completedAt: existing?.completedAt || "",
@@ -779,6 +1105,97 @@ function handleMissionSubmit(event) {
 
   $("#missionDialog").close();
   saveAndRender("Missão salva.");
+}
+
+function handleCalendarSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const id = data.id || createId();
+  const existing = getCalendarEvent(id);
+  const item = {
+    id,
+    title: String(data.title || "").trim(),
+    description: String(data.description || "").trim(),
+    type: data.type || "game-event",
+    date: data.date || todayIso(),
+    tags: parseTags(data.tags),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!item.title) return;
+
+  const index = state.calendarEvents.findIndex((eventItem) => eventItem.id === id);
+  if (index >= 0) state.calendarEvents[index] = item;
+  else state.calendarEvents.unshift(item);
+
+  $("#calendarDialog").close();
+  saveAndRender("Evento salvo.");
+}
+
+function handleDinoSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const id = data.id || createId();
+  const existing = getDino(id);
+  const dino = {
+    id,
+    name: String(data.name || "").trim(),
+    classType: data.classType || "carnivore",
+    rarity: data.rarity || "common",
+    currentLevel: clampNumber(data.currentLevel, 1, 40, 1),
+    targetLevel: clampNumber(data.targetLevel, 1, 40, 40),
+    dnaNeeded: Math.max(0, toNumber(data.dnaNeeded, 0)),
+    foodNeeded: Math.max(0, toNumber(data.foodNeeded, 0)),
+    missionId: data.missionId || "",
+    notes: String(data.notes || "").trim(),
+    tags: parseTags(data.tags),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!dino.name) return;
+
+  const index = state.dinosaurs.findIndex((item) => item.id === id);
+  if (index >= 0) state.dinosaurs[index] = dino;
+  else state.dinosaurs.unshift(dino);
+
+  $("#dinoDialog").close();
+  saveAndRender("Dino salvo.");
+}
+
+function handleGoalSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const id = data.id || createId();
+  const existing = getGoal(id);
+  const target = Math.max(1, toNumber(data.target, 1));
+  const current = Math.max(0, toNumber(data.current, 0));
+  const goal = {
+    id,
+    title: String(data.title || "").trim(),
+    current,
+    target,
+    unit: String(data.unit || "").trim(),
+    dueDate: data.dueDate || "",
+    notes: String(data.notes || "").trim(),
+    tags: parseTags(data.tags),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    completedAt: current >= target ? existing?.completedAt || new Date().toISOString() : "",
+  };
+
+  if (!goal.title) return;
+
+  const index = state.goals.findIndex((item) => item.id === id);
+  if (index >= 0) state.goals[index] = goal;
+  else state.goals.unshift(goal);
+
+  $("#goalDialog").close();
+  saveAndRender("Meta salva.");
 }
 
 async function handleTimelineSubmit(event) {
@@ -812,6 +1229,7 @@ async function handleTimelineSubmit(event) {
       date: data.date || todayIso(),
       missionId: data.missionId || "",
       taskId: existing?.taskId || "",
+      tags: parseTags(data.tags),
       images,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -859,6 +1277,7 @@ function openTaskDialog(task = null) {
   form.elements.category.value = task?.category || "dino";
   form.elements.dueDate.value = task?.dueDate || "";
   form.elements.recurrence.value = task?.recurrence || "none";
+  form.elements.tags.value = formTagsValue(task?.tags);
   showDialog("#taskDialog");
 }
 
@@ -876,7 +1295,55 @@ function openMissionDialog(mission = null) {
   form.elements.steps.value = normalizeMissionSteps(mission || { steps: [] })
     .map((step) => (step.note ? `${step.text} | ${step.note}` : step.text))
     .join("\n");
+  form.elements.tags.value = formTagsValue(mission?.tags);
   showDialog("#missionDialog");
+}
+
+function openCalendarDialog(item = null) {
+  const form = $("#calendarForm");
+  form.reset();
+  $("#calendarDialogTitle").textContent = item ? "Editar evento" : "Novo evento";
+  form.elements.id.value = item?.id || "";
+  form.elements.title.value = item?.title || "";
+  form.elements.description.value = item?.description || "";
+  form.elements.type.value = item?.type || "game-event";
+  form.elements.date.value = item?.date || todayIso();
+  form.elements.tags.value = formTagsValue(item?.tags);
+  showDialog("#calendarDialog");
+}
+
+function openDinoDialog(dino = null) {
+  renderTimelineMissionOptions();
+  const form = $("#dinoForm");
+  form.reset();
+  $("#dinoDialogTitle").textContent = dino ? "Editar dino" : "Novo dino";
+  form.elements.id.value = dino?.id || "";
+  form.elements.name.value = dino?.name || "";
+  form.elements.classType.value = dino?.classType || "carnivore";
+  form.elements.rarity.value = dino?.rarity || "common";
+  form.elements.currentLevel.value = dino?.currentLevel || 1;
+  form.elements.targetLevel.value = dino?.targetLevel || 40;
+  form.elements.dnaNeeded.value = dino?.dnaNeeded || 0;
+  form.elements.foodNeeded.value = dino?.foodNeeded || 0;
+  form.elements.missionId.value = dino?.missionId || "";
+  form.elements.notes.value = dino?.notes || "";
+  form.elements.tags.value = formTagsValue(dino?.tags);
+  showDialog("#dinoDialog");
+}
+
+function openGoalDialog(goal = null) {
+  const form = $("#goalForm");
+  form.reset();
+  $("#goalDialogTitle").textContent = goal ? "Editar meta" : "Nova meta";
+  form.elements.id.value = goal?.id || "";
+  form.elements.title.value = goal?.title || "";
+  form.elements.current.value = goal?.current || 0;
+  form.elements.target.value = goal?.target || 1;
+  form.elements.unit.value = goal?.unit || "";
+  form.elements.dueDate.value = goal?.dueDate || todayIso();
+  form.elements.notes.value = goal?.notes || "";
+  form.elements.tags.value = formTagsValue(goal?.tags);
+  showDialog("#goalDialog");
 }
 
 function openTimelineForEdit(id) {
@@ -892,6 +1359,7 @@ function openTimelineForEdit(id) {
   form.elements.date.value = item.date || todayIso();
   form.elements.missionId.value = item.missionId || "";
   form.elements.imageMode.value = "append";
+  form.elements.tags.value = formTagsValue(item.tags);
   $("#timelineFormTitle").textContent = "Editar registro";
   $("#saveTimelineButton span").textContent = "Salvar edição";
   $("#cancelTimelineEdit").classList.remove("is-hidden");
@@ -970,7 +1438,38 @@ function deleteMission(id) {
   if (!mission || !confirm(`Apagar "${mission.name}"?`)) return;
   state.missions = state.missions.filter((item) => item.id !== id);
   state.timeline = state.timeline.map((item) => (item.missionId === id ? { ...item, missionId: "" } : item));
+  state.dinosaurs = state.dinosaurs.map((item) => (item.missionId === id ? { ...item, missionId: "" } : item));
   saveAndRender("Missão apagada.");
+}
+
+function deleteCalendarEvent(id) {
+  const item = getCalendarEvent(id);
+  if (!item || !confirm(`Apagar "${item.title}" do calendário?`)) return;
+  state.calendarEvents = state.calendarEvents.filter((eventItem) => eventItem.id !== id);
+  saveAndRender("Evento apagado.");
+}
+
+function deleteDino(id) {
+  const dino = getDino(id);
+  if (!dino || !confirm(`Apagar "${dino.name}"?`)) return;
+  state.dinosaurs = state.dinosaurs.filter((item) => item.id !== id);
+  saveAndRender("Dino apagado.");
+}
+
+function deleteGoal(id) {
+  const goal = getGoal(id);
+  if (!goal || !confirm(`Apagar "${goal.title}"?`)) return;
+  state.goals = state.goals.filter((item) => item.id !== id);
+  saveAndRender("Meta apagada.");
+}
+
+function updateGoalProgress(id, amount) {
+  const goal = getGoal(id);
+  if (!goal) return;
+  goal.current = Math.max(0, Math.min(goal.target, toNumber(goal.current, 0) + amount));
+  goal.completedAt = goal.current >= goal.target ? goal.completedAt || new Date().toISOString() : "";
+  goal.updatedAt = new Date().toISOString();
+  saveAndRender("Meta atualizada.");
 }
 
 function addMissionStep(missionId, text, note = "") {
@@ -1367,6 +1866,68 @@ function exportBackup() {
   showToast("Backup exportado.");
 }
 
+function exportTimelineHtml() {
+  const items = [...state.timeline].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  if (!items.length) {
+    showToast("Não há registros para exportar.");
+    return;
+  }
+
+  const body = items
+    .map((item) => {
+      const images = getTimelineImages(item)
+        .map((image) => `<img src="${escapeHtml(image.url)}" alt="${escapeHtml(item.title)}" />`)
+        .join("");
+      const mission = item.missionId ? getMission(item.missionId) : null;
+      return `
+        <article>
+          <time>${escapeHtml(formatDate(item.date))}</time>
+          <h2>${escapeHtml(item.title)}</h2>
+          <p>${escapeHtml(item.description || "")}</p>
+          <p><strong>Tipo:</strong> ${escapeHtml(timelineTypeLabels[item.type] || item.type)}${mission ? ` · <strong>Missão:</strong> ${escapeHtml(mission.name)}` : ""}</p>
+          <p>${normalizeTags(item.tags).map((tag) => `#${escapeHtml(tag)}`).join(" ")}</p>
+          <div class="prints">${images}</div>
+        </article>
+      `;
+    })
+    .join("");
+
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timeline Jurassic Planner</title>
+  <style>
+    body { margin: 0; padding: 32px; background: #111411; color: #f4f5ef; font-family: Arial, sans-serif; }
+    main { max-width: 980px; margin: 0 auto; }
+    h1 { margin-bottom: 24px; }
+    article { border-left: 3px solid #75d96b; padding: 0 0 28px 18px; margin-bottom: 28px; }
+    time { color: #5fd7cf; font-weight: 700; text-transform: uppercase; }
+    h2 { margin: 8px 0; }
+    p { color: #d4dbc9; line-height: 1.5; }
+    .prints { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+    img { width: 100%; border-radius: 8px; background: #0d100f; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Timeline Jurassic Planner</h1>
+    ${body}
+  </main>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `jurassic-timeline-${todayIso()}.html`;
+  link.click();
+  URL.revokeObjectURL(url);
+  showToast("Timeline exportada em HTML.");
+}
+
 function getBackupPayload() {
   return {
     app: "jurassic-planner",
@@ -1415,6 +1976,14 @@ function renderImportPreview(imported) {
       <span>Prints</span>
       <strong>${printCount}</strong>
     </article>
+    <article class="metric metric-violet">
+      <span>Dinos</span>
+      <strong>${imported.dinosaurs.length}</strong>
+    </article>
+    <article class="metric metric-green">
+      <span>Metas</span>
+      <strong>${imported.goals.length}</strong>
+    </article>
   `;
 }
 
@@ -1458,6 +2027,18 @@ function getMission(id) {
   return state.missions.find((mission) => mission.id === id);
 }
 
+function getCalendarEvent(id) {
+  return state.calendarEvents.find((eventItem) => eventItem.id === id);
+}
+
+function getDino(id) {
+  return state.dinosaurs.find((dino) => dino.id === id);
+}
+
+function getGoal(id) {
+  return state.goals.find((goal) => goal.id === id);
+}
+
 function getTimelineItem(id) {
   return state.timeline.find((item) => item.id === id);
 }
@@ -1470,6 +2051,69 @@ function getLinkedTimelineImages(missionId) {
   return state.timeline
     .filter((item) => item.missionId === missionId)
     .flatMap((item) => getTimelineImages(item).map((image) => ({ item, image })));
+}
+
+function getAgendaItems() {
+  const customEvents = state.calendarEvents.map((item) => ({ ...item, source: "calendar" }));
+  const taskEvents = state.tasks
+    .filter((task) => task.dueDate && task.status !== "done")
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      type: "task",
+      date: task.dueDate,
+      tags: task.tags,
+      source: "task",
+    }));
+  const missionEvents = state.missions
+    .filter((mission) => mission.dueDate && mission.status !== "done")
+    .map((mission) => ({
+      id: mission.id,
+      title: mission.name,
+      description: mission.description,
+      type: "mission",
+      date: mission.dueDate,
+      tags: mission.tags,
+      source: "mission",
+    }));
+  const goalEvents = state.goals
+    .filter((goal) => goal.dueDate && !isGoalDone(goal))
+    .map((goal) => ({
+      id: goal.id,
+      title: goal.title,
+      description: goal.notes,
+      type: "goal",
+      date: goal.dueDate,
+      tags: goal.tags,
+      source: "goal",
+    }));
+  return [...customEvents, ...taskEvents, ...missionEvents, ...goalEvents];
+}
+
+function getSmartInsights() {
+  const insights = [];
+  const overdueTasks = state.tasks.filter(isOverdue).sort(sortTasks);
+  const upcomingAgenda = getAgendaItems()
+    .filter((item) => item.date >= todayIso() && item.date <= addDaysIso(7))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const closeMissions = state.missions
+    .filter((mission) => mission.status !== "done" && getMissionProgress(mission) >= 70)
+    .sort((a, b) => getMissionProgress(b) - getMissionProgress(a));
+  const closeGoals = state.goals
+    .filter((goal) => !isGoalDone(goal) && getGoalProgress(goal) >= 70)
+    .sort((a, b) => getGoalProgress(b) - getGoalProgress(a));
+  const dinosNearTarget = state.dinosaurs
+    .filter((dino) => getDinoProgress(dino) >= 75 && getDinoProgress(dino) < 100)
+    .sort((a, b) => getDinoProgress(b) - getDinoProgress(a));
+
+  overdueTasks.slice(0, 2).forEach((task) => insights.push({ title: task.title, detail: `Tarefa atrasada desde ${formatDate(task.dueDate)}` }));
+  closeMissions.slice(0, 2).forEach((mission) => insights.push({ title: mission.name, detail: `Missão quase pronta: ${getMissionProgress(mission)}%` }));
+  closeGoals.slice(0, 2).forEach((goal) => insights.push({ title: goal.title, detail: `Meta em ${getGoalProgress(goal)}%` }));
+  dinosNearTarget.slice(0, 2).forEach((dino) => insights.push({ title: dino.name, detail: `Dino perto do alvo: ${getDinoProgress(dino)}%` }));
+  upcomingAgenda.slice(0, 3).forEach((item) => insights.push({ title: item.title, detail: `${calendarTypeLabels[item.type] || item.type} em ${formatDate(item.date)}` }));
+
+  return insights.slice(0, 6);
 }
 
 function getMissionProgress(mission) {
@@ -1507,6 +2151,67 @@ function parseStepLine(line) {
   };
 }
 
+function parseTags(value) {
+  return normalizeTags(
+    String(value || "")
+      .split(/[,#]/)
+      .map((tag) => tag.trim()),
+  );
+}
+
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  return tags
+    .map((tag) => String(tag || "").trim())
+    .filter(Boolean)
+    .filter((tag) => {
+      const key = normalizeText(tag);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function formTagsValue(tags) {
+  return normalizeTags(tags).join(", ");
+}
+
+function renderTagRow(tags) {
+  const cleanTags = normalizeTags(tags);
+  if (!cleanTags.length) return "";
+  return `<div class="tag-row">${cleanTags.map((tag) => `<span class="tag tag-custom">#${escapeHtml(tag)}</span>`).join("")}</div>`;
+}
+
+function getDinoProgress(dino) {
+  const target = Math.max(1, toNumber(dino.targetLevel, 40));
+  const current = Math.max(0, toNumber(dino.currentLevel, 1));
+  return Math.max(0, Math.min(100, Math.round((current / target) * 100)));
+}
+
+function getGoalProgress(goal) {
+  const target = Math.max(1, toNumber(goal.target, 1));
+  const current = Math.max(0, toNumber(goal.current, 0));
+  return Math.max(0, Math.min(100, Math.round((current / target) * 100)));
+}
+
+function isGoalDone(goal) {
+  return toNumber(goal.current, 0) >= Math.max(1, toNumber(goal.target, 1));
+}
+
+function isGoalOverdue(goal) {
+  return !isGoalDone(goal) && goal.dueDate && goal.dueDate < todayIso();
+}
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function clampNumber(value, min, max, fallback) {
+  return Math.max(min, Math.min(max, toNumber(value, fallback)));
+}
+
 function sortTasks(a, b) {
   const statusRank = { doing: 0, pending: 1, done: 2 };
   const priorityRank = { high: 0, medium: 1, low: 2 };
@@ -1514,6 +2219,15 @@ function sortTasks(a, b) {
     Number(isOverdue(b)) - Number(isOverdue(a)) ||
     (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9) ||
     (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) ||
+    (a.dueDate || "9999-12-31").localeCompare(b.dueDate || "9999-12-31") ||
+    (b.createdAt || "").localeCompare(a.createdAt || "")
+  );
+}
+
+function sortGoals(a, b) {
+  return (
+    Number(isGoalDone(a)) - Number(isGoalDone(b)) ||
+    Number(isGoalOverdue(b)) - Number(isGoalOverdue(a)) ||
     (a.dueDate || "9999-12-31").localeCompare(b.dueDate || "9999-12-31") ||
     (b.createdAt || "").localeCompare(a.createdAt || "")
   );
@@ -1564,6 +2278,27 @@ function formatDate(value) {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function formatDay(value) {
+  if (!value) return "--";
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit" }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatMonth(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("pt-BR").format(toNumber(value, 0));
+}
+
+function addDaysIso(days) {
+  const date = new Date(`${todayIso()}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
 }
 
 function formatDateTime(value) {

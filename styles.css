@@ -317,6 +317,10 @@ label span {
   color: var(--red);
 }
 
+.metric-violet strong {
+  color: var(--violet);
+}
+
 .workspace-grid {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -409,6 +413,8 @@ label span {
 .item-list,
 .mission-list,
 .timeline-list,
+.agenda-list,
+.goal-list,
 .compact-list,
 .mini-gallery {
   display: grid;
@@ -418,6 +424,10 @@ label span {
 .task-card,
 .mission-card,
 .timeline-card,
+.agenda-item,
+.dino-card,
+.goal-card,
+.gallery-card,
 .compact-item {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -528,6 +538,19 @@ label span {
   color: var(--violet);
 }
 
+.tag-custom {
+  background: rgba(117, 217, 107, 0.1);
+  color: var(--green);
+  text-transform: none;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
 .priority-high {
   background: rgba(238, 116, 111, 0.13);
   color: var(--red);
@@ -587,6 +610,78 @@ label span {
   display: grid;
   gap: 14px;
   padding: 16px;
+}
+
+.goal-card,
+.dino-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.goal-card.is-complete {
+  border-color: rgba(117, 217, 107, 0.45);
+}
+
+.dino-grid,
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.meta-grid span {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101311;
+  color: var(--muted-strong);
+  font-weight: 700;
+}
+
+.agenda-item {
+  display: grid;
+  grid-template-columns: 78px 1fr auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+}
+
+.agenda-date {
+  display: grid;
+  place-items: center;
+  min-height: 70px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101311;
+}
+
+.agenda-date strong {
+  font-size: 1.7rem;
+  line-height: 1;
+  color: var(--green);
+}
+
+.agenda-date span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.source-task {
+  border-color: rgba(95, 215, 207, 0.36);
+}
+
+.source-mission,
+.source-goal {
+  border-color: rgba(240, 184, 75, 0.36);
 }
 
 .mission-top {
@@ -877,6 +972,38 @@ label span {
   font-size: 1.05rem;
 }
 
+.gallery-card {
+  overflow: hidden;
+}
+
+.gallery-media {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: #101311;
+}
+
+.gallery-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery-copy {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.gallery-copy h3 {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
 .mini-gallery {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 12px;
@@ -1096,6 +1223,11 @@ svg {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .dino-grid,
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .quick-form {
     grid-template-columns: 1fr 1fr;
   }
@@ -1153,6 +1285,9 @@ svg {
   .workspace-grid,
   .settings-grid,
   .timeline-form,
+  .dino-grid,
+  .gallery-grid,
+  .meta-grid,
   .two-cols,
   .three-cols,
   .preview-grid {
@@ -1179,6 +1314,15 @@ svg {
   }
 
   .timeline-card .card-actions {
+    justify-content: flex-start;
+  }
+
+  .agenda-item {
+    grid-template-columns: 64px 1fr;
+  }
+
+  .agenda-item .card-actions {
+    grid-column: 1 / -1;
     justify-content: flex-start;
   }
 

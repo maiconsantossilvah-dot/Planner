@@ -34,9 +34,25 @@
             <i data-lucide="flag"></i>
             <span>Missões</span>
           </button>
+          <button class="tab-button" type="button" data-view="calendar" title="Calendário">
+            <i data-lucide="calendar-days"></i>
+            <span>Calendário</span>
+          </button>
+          <button class="tab-button" type="button" data-view="dinos" title="Dinossauros">
+            <i data-lucide="egg"></i>
+            <span>Dinos</span>
+          </button>
+          <button class="tab-button" type="button" data-view="goals" title="Metas">
+            <i data-lucide="target"></i>
+            <span>Metas</span>
+          </button>
           <button class="tab-button" type="button" data-view="timeline" title="Timeline">
             <i data-lucide="images"></i>
             <span>Timeline</span>
+          </button>
+          <button class="tab-button" type="button" data-view="gallery" title="Galeria">
+            <i data-lucide="image"></i>
+            <span>Galeria</span>
           </button>
           <button class="tab-button" type="button" data-view="settings" title="Configurações">
             <i data-lucide="settings"></i>
@@ -86,9 +102,24 @@
               <span>Atrasadas</span>
               <strong id="overdueTaskCount">0</strong>
             </article>
+            <article class="metric metric-violet">
+              <span>Dinos</span>
+              <strong id="dinoCount">0</strong>
+            </article>
+            <article class="metric metric-green">
+              <span>Metas ativas</span>
+              <strong id="activeGoalCount">0</strong>
+            </article>
           </div>
 
           <div class="workspace-grid">
+            <section class="tool-panel">
+              <div class="panel-heading">
+                <h3>Alertas inteligentes</h3>
+              </div>
+              <div id="dashboardInsightList" class="compact-list"></div>
+            </section>
+
             <section class="tool-panel">
               <div class="panel-heading">
                 <h3>Adicionar rápido</h3>
@@ -221,12 +252,105 @@
           <div id="missionList" class="mission-list"></div>
         </section>
 
+        <section id="calendarView" class="view" data-view-panel="calendar">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Agenda</p>
+              <h2>Calendário</h2>
+            </div>
+            <button id="newCalendarEventButton" class="primary-button" type="button">
+              <i data-lucide="plus"></i>
+              <span>Novo evento</span>
+            </button>
+          </div>
+
+          <div class="filter-bar">
+            <select id="calendarTypeFilter" aria-label="Filtrar calendário">
+              <option value="all">Tudo</option>
+              <option value="game-event">Evento do jogo</option>
+              <option value="task">Tarefas</option>
+              <option value="mission">Missões</option>
+              <option value="goal">Metas</option>
+              <option value="resources">Recursos</option>
+              <option value="other">Outro</option>
+            </select>
+            <input id="calendarDateFrom" type="date" aria-label="Início do calendário" />
+            <input id="calendarDateTo" type="date" aria-label="Fim do calendário" />
+          </div>
+
+          <div id="calendarList" class="agenda-list"></div>
+        </section>
+
+        <section id="dinosView" class="view" data-view-panel="dinos">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Coleção</p>
+              <h2>Dinossauros</h2>
+            </div>
+            <button id="newDinoButton" class="primary-button" type="button">
+              <i data-lucide="plus"></i>
+              <span>Novo dino</span>
+            </button>
+          </div>
+
+          <div class="filter-bar">
+            <select id="dinoClassFilter" aria-label="Filtrar classe">
+              <option value="all">Todas as classes</option>
+              <option value="carnivore">Carnívoro</option>
+              <option value="herbivore">Herbívoro</option>
+              <option value="pterosaur">Pterossauro</option>
+              <option value="amphibian">Anfíbio</option>
+              <option value="aquatic">Aquático</option>
+              <option value="cenozoic">Cenozóico</option>
+              <option value="hybrid">Híbrido</option>
+            </select>
+            <select id="dinoRarityFilter" aria-label="Filtrar raridade">
+              <option value="all">Todas as raridades</option>
+              <option value="common">Comum</option>
+              <option value="rare">Raro</option>
+              <option value="super-rare">Super raro</option>
+              <option value="legendary">Lendário</option>
+              <option value="vip">VIP</option>
+              <option value="tournament">Torneio</option>
+            </select>
+          </div>
+
+          <div id="dinoList" class="dino-grid"></div>
+        </section>
+
+        <section id="goalsView" class="view" data-view-panel="goals">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Semana</p>
+              <h2>Metas</h2>
+            </div>
+            <button id="newGoalButton" class="primary-button" type="button">
+              <i data-lucide="plus"></i>
+              <span>Nova meta</span>
+            </button>
+          </div>
+
+          <div class="filter-bar">
+            <select id="goalStatusFilter" aria-label="Filtrar metas">
+              <option value="all">Todas</option>
+              <option value="active">Ativas</option>
+              <option value="done">Concluídas</option>
+            </select>
+          </div>
+
+          <div id="goalList" class="goal-list"></div>
+        </section>
+
         <section id="timelineView" class="view" data-view-panel="timeline">
           <div class="section-heading">
             <div>
               <p class="eyebrow">Registro</p>
               <h2>Linha do tempo</h2>
             </div>
+            <button id="exportTimelineButton" class="secondary-button" type="button">
+              <i data-lucide="file-down"></i>
+              <span>Exportar timeline</span>
+            </button>
           </div>
 
           <section class="upload-panel">
@@ -289,6 +413,10 @@
                   <span>Notas</span>
                   <textarea name="description" rows="3" placeholder="Detalhe rápido"></textarea>
                 </label>
+                <label>
+                  <span>Tags</span>
+                  <input name="tags" type="text" placeholder="Ex.: Indominus, evento semanal" autocomplete="off" />
+                </label>
                 <button id="saveTimelineButton" class="primary-button" type="submit">
                   <i data-lucide="upload-cloud"></i>
                   <span>Salvar registro</span>
@@ -320,6 +448,34 @@
           </div>
 
           <div id="timelineList" class="timeline-list"></div>
+        </section>
+
+        <section id="galleryView" class="view" data-view-panel="gallery">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Prints</p>
+              <h2>Galeria</h2>
+            </div>
+          </div>
+
+          <div class="filter-bar">
+            <select id="galleryTypeFilter" aria-label="Filtrar galeria por tipo">
+              <option value="all">Todos os tipos</option>
+              <option value="achievement">Conquista</option>
+              <option value="mission">Missão</option>
+              <option value="battle">Batalha</option>
+              <option value="evolution">Evolução</option>
+              <option value="hybrid">Híbrido</option>
+              <option value="park">Parque</option>
+              <option value="event">Evento</option>
+            </select>
+            <select id="galleryMissionFilter" aria-label="Filtrar galeria por missão">
+              <option value="all">Todas as missões</option>
+            </select>
+            <input id="galleryTagFilter" type="search" placeholder="Filtrar tag" aria-label="Filtrar por tag" />
+          </div>
+
+          <div id="galleryGrid" class="gallery-grid"></div>
         </section>
 
         <section id="settingsView" class="view" data-view-panel="settings">
@@ -454,6 +610,10 @@
             </select>
           </label>
         </div>
+        <label>
+          <span>Tags</span>
+          <input name="tags" type="text" placeholder="Ex.: rotina, evento, DNA" autocomplete="off" />
+        </label>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
           <button class="primary-button" type="submit">
@@ -517,6 +677,187 @@
         <label>
           <span>Etapas e notas</span>
           <textarea name="steps" rows="6" placeholder="Uma etapa por linha. Use: etapa | nota opcional"></textarea>
+        </label>
+        <label>
+          <span>Tags</span>
+          <input name="tags" type="text" placeholder="Ex.: Indominus, híbridos, prioridade" autocomplete="off" />
+        </label>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-button" type="submit">
+            <i data-lucide="save"></i>
+            <span>Salvar</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="calendarDialog" class="app-dialog">
+      <form id="calendarForm" class="dialog-card">
+        <input name="id" type="hidden" />
+        <div class="dialog-heading">
+          <h2 id="calendarDialogTitle">Novo evento</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label>
+          <span>Título</span>
+          <input name="title" type="text" required autocomplete="off" />
+        </label>
+        <div class="form-row two-cols">
+          <label>
+            <span>Data</span>
+            <input name="date" type="date" required />
+          </label>
+          <label>
+            <span>Tipo</span>
+            <select name="type">
+              <option value="game-event">Evento do jogo</option>
+              <option value="resources">Recursos</option>
+              <option value="battle">Batalha</option>
+              <option value="other">Outro</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          <span>Notas</span>
+          <textarea name="description" rows="3"></textarea>
+        </label>
+        <label>
+          <span>Tags</span>
+          <input name="tags" type="text" placeholder="Ex.: torneio, semanal" autocomplete="off" />
+        </label>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-button" type="submit">
+            <i data-lucide="save"></i>
+            <span>Salvar</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="dinoDialog" class="app-dialog">
+      <form id="dinoForm" class="dialog-card">
+        <input name="id" type="hidden" />
+        <div class="dialog-heading">
+          <h2 id="dinoDialogTitle">Novo dino</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label>
+          <span>Nome</span>
+          <input name="name" type="text" required autocomplete="off" />
+        </label>
+        <div class="form-row three-cols">
+          <label>
+            <span>Classe</span>
+            <select name="classType">
+              <option value="carnivore">Carnívoro</option>
+              <option value="herbivore">Herbívoro</option>
+              <option value="pterosaur">Pterossauro</option>
+              <option value="amphibian">Anfíbio</option>
+              <option value="aquatic">Aquático</option>
+              <option value="cenozoic">Cenozóico</option>
+              <option value="hybrid">Híbrido</option>
+            </select>
+          </label>
+          <label>
+            <span>Raridade</span>
+            <select name="rarity">
+              <option value="common">Comum</option>
+              <option value="rare">Raro</option>
+              <option value="super-rare">Super raro</option>
+              <option value="legendary">Lendário</option>
+              <option value="vip">VIP</option>
+              <option value="tournament">Torneio</option>
+            </select>
+          </label>
+          <label>
+            <span>Missão ligada</span>
+            <select id="dinoMissionSelect" name="missionId">
+              <option value="">Sem ligação</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row two-cols">
+          <label>
+            <span>Nível atual</span>
+            <input name="currentLevel" type="number" min="1" max="40" value="1" />
+          </label>
+          <label>
+            <span>Nível desejado</span>
+            <input name="targetLevel" type="number" min="1" max="40" value="40" />
+          </label>
+        </div>
+        <div class="form-row two-cols">
+          <label>
+            <span>DNA necessário</span>
+            <input name="dnaNeeded" type="number" min="0" value="0" />
+          </label>
+          <label>
+            <span>Comida necessária</span>
+            <input name="foodNeeded" type="number" min="0" value="0" />
+          </label>
+        </div>
+        <label>
+          <span>Notas</span>
+          <textarea name="notes" rows="3"></textarea>
+        </label>
+        <label>
+          <span>Tags</span>
+          <input name="tags" type="text" placeholder="Ex.: híbrido, carnivoro, prioridade" autocomplete="off" />
+        </label>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-button" type="submit">
+            <i data-lucide="save"></i>
+            <span>Salvar</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="goalDialog" class="app-dialog">
+      <form id="goalForm" class="dialog-card">
+        <input name="id" type="hidden" />
+        <div class="dialog-heading">
+          <h2 id="goalDialogTitle">Nova meta</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label>
+          <span>Título</span>
+          <input name="title" type="text" required autocomplete="off" />
+        </label>
+        <div class="form-row three-cols">
+          <label>
+            <span>Atual</span>
+            <input name="current" type="number" min="0" value="0" />
+          </label>
+          <label>
+            <span>Meta</span>
+            <input name="target" type="number" min="1" value="1" />
+          </label>
+          <label>
+            <span>Unidade</span>
+            <input name="unit" type="text" placeholder="DNA, batalhas, dinos" autocomplete="off" />
+          </label>
+        </div>
+        <label>
+          <span>Prazo</span>
+          <input name="dueDate" type="date" />
+        </label>
+        <label>
+          <span>Notas</span>
+          <textarea name="notes" rows="3"></textarea>
+        </label>
+        <label>
+          <span>Tags</span>
+          <input name="tags" type="text" placeholder="Ex.: semanal, DNA, evento" autocomplete="off" />
         </label>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancelar</button>
