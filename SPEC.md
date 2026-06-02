@@ -10,6 +10,7 @@ Implementado nesta rodada:
 - aba News com últimos dinos lançados do Paleo.gg
 - sincronização com Supabase usando login por e-mail/senha
 - imagens no Cloudinary e metadados no Supabase
+- multiplayer de leitura com amigos, convites, feed e publicações em tempo real
 - metas semanais
 - painel inteligente
 - exportação da timeline
@@ -151,6 +152,31 @@ Fluxo:
 
 Prints locais em base64 não são enviados ao Supabase. Eles continuam funcionando localmente, mas só viajam entre máquinas quando forem enviados ao Cloudinary.
 
+## Multiplayer
+
+A primeira camada multiplayer implementada inclui:
+
+- perfil publico com nome e usuario
+- convites de amizade
+- aceite, cancelamento e remocao de amizades
+- visibilidade em missoes, dinos, metas e timeline
+- feed de amigos com metadados publicados
+- atualizacao quase em tempo real via Supabase Realtime
+
+Visibilidades:
+
+- `Somente eu`: nao publica no feed
+- `Amigos`: amigos aceitos podem ver
+- `Compartilhado`: usuarios autenticados podem ver
+
+O feed publica apenas metadados. Prints aparecem somente quando a imagem estiver no Cloudinary.
+
+Nao implementado nesta etapa:
+
+- edicao colaborativa de uma mesma missao
+- progresso compartilhado editavel por varios jogadores
+- chat
+
 ## Tags Personalizadas
 
 Tags podem ser usadas em:
@@ -164,6 +190,5 @@ Tags podem ser usadas em:
 
 ## Fora Do Escopo
 
-- multiplayer com amigos
-- compartilhamento seletivo de metas, dinos e prints
+- edicao colaborativa multiplayer
 - PWA/instalação como aplicativo

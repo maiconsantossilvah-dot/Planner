@@ -518,6 +518,7 @@ label span {
 .tag,
 .priority-pill,
 .status-pill,
+.visibility-pill,
 .source-pill {
   display: inline-flex;
   align-items: center;
@@ -575,6 +576,21 @@ label span {
 .status-pill {
   background: var(--surface-soft);
   color: var(--muted-strong);
+}
+
+.visibility-private {
+  background: rgba(174, 183, 170, 0.12);
+  color: var(--muted-strong);
+}
+
+.visibility-friends {
+  background: rgba(95, 215, 207, 0.12);
+  color: var(--cyan);
+}
+
+.visibility-shared {
+  background: rgba(117, 217, 107, 0.12);
+  color: var(--green);
 }
 
 .status-done {
@@ -1271,6 +1287,13 @@ label span {
   gap: 16px;
 }
 
+.friends-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
 .settings-panel {
   display: grid;
   gap: 12px;
@@ -1340,6 +1363,57 @@ label span {
 
 .sync-actions button {
   width: 100%;
+}
+
+.social-feed {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.social-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.social-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: #101311;
+}
+
+.social-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.social-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.friend-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101311;
+}
+
+.friend-row strong,
+.friend-row span {
+  overflow-wrap: anywhere;
 }
 
 .action-row {
@@ -1616,6 +1690,7 @@ svg {
   .summary-grid,
   .workspace-grid,
   .settings-grid,
+  .friends-grid,
   .timeline-form,
   .dino-detail-layout,
   .dino-grid,

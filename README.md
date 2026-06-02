@@ -33,6 +33,7 @@ Também é possível abrir `index.html` direto no navegador.
 - configuração e teste do Cloudinary
 - sincronização com Supabase usando login por e-mail/senha
 - imagens no Cloudinary e metadados no Supabase
+- aba Amigos com perfil, convites, feed e publicações em tempo real
 - backup JSON com prévia de importação
 - limpeza apenas de prints locais
 - layout melhorado para celular
@@ -57,7 +58,7 @@ O Supabase guarda os metadados do planner: tarefas, missões, dinos, metas, time
 Para ativar:
 
 1. Crie um projeto no Supabase.
-2. Abra o SQL Editor e rode o arquivo `supabase-schema.sql`.
+2. Abra o SQL Editor e rode o arquivo `supabase-schema.sql`. Se voce ja rodou uma versao antiga, pode rodar novamente.
 3. Em `Config`, preencha `Project URL` e a chave pública anon/publishable.
 4. Clique em `Salvar Supabase`.
 5. Crie uma conta ou entre com e-mail/senha.
@@ -65,6 +66,20 @@ Para ativar:
 7. Ative a sincronização automática se quiser enviar mudanças novas depois do login.
 
 Prints locais em base64 não são enviados ao Supabase. Para sincronizar imagens entre máquinas, deixe o Cloudinary configurado antes de salvar novos prints.
+
+## Amigos E Multiplayer
+
+A aba `Amigos` usa o Supabase para multiplayer de leitura:
+
+- crie ou ajuste seu perfil com `Nome` e `Usuario`
+- envie convite usando o usuario do amigo
+- aceite ou recuse convites recebidos
+- marque missoes, dinos, metas ou registros da timeline como `Amigos` ou `Compartilhado`
+- clique em `Publicar agora`, ou use `Enviar local`, para atualizar o feed
+
+O feed mostra metadados compartilhados. Prints aparecem no feed somente quando a imagem estiver no Cloudinary. Itens `Somente eu` nao sao publicados.
+
+Esta versao nao permite edicao colaborativa da mesma missao. Amigos apenas visualizam o que foi publicado.
 
 ## Wiki Dos Dinos
 
@@ -104,5 +119,5 @@ A aba `News` checa o Paleo.gg sempre que é aberta. Se a versão da base mudou, 
 - `index.html`: estrutura do app
 - `styles.css`: visual responsivo
 - `app.js`: tarefas, missões, timeline, backup e upload Cloudinary
-- `supabase-schema.sql`: tabela e regras de segurança para sincronização
+- `supabase-schema.sql`: tabelas, regras de segurança, amizades e feed em tempo real
 - `SPEC.md`: melhorias implementadas e próximos caminhos

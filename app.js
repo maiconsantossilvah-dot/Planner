@@ -4,6 +4,9 @@ const TRANSLATION_CACHE_KEY = "jurassic-planner-translation-cache-v1";
 const PALEO_NEWS_CACHE_KEY = "jurassic-planner-paleo-news-cache-v1";
 const SCHEMA_VERSION = 3;
 const SUPABASE_TABLE = "planner_profiles";
+const SUPABASE_SOCIAL_PROFILES_TABLE = "planner_social_profiles";
+const SUPABASE_FRIENDSHIPS_TABLE = "planner_friendships";
+const SUPABASE_SHARED_ITEMS_TABLE = "planner_shared_items";
 const SUPABASE_SYNC_DEBOUNCE_MS = 1200;
 const SUPABASE_SYNC_MAX_PAYLOAD_SIZE = 1800000;
 const DINO_WIKI_API = "https://jurassic-world-the-mobile-game.fandom.com/api.php";
@@ -92,6 +95,19 @@ const dinoRarityLabels = {
   boss: "Boss",
 };
 
+const visibilityLabels = {
+  private: "Somente eu",
+  friends: "Amigos",
+  shared: "Compartilhado",
+};
+
+const sharedItemTypeLabels = {
+  mission: "Missao",
+  dino: "Dino",
+  timeline: "Print",
+  goal: "Meta",
+};
+
 let state = hydrateState(loadStoredState());
 let pendingImportState = null;
 let activeView = "dashboard";
@@ -114,6 +130,16 @@ let supabaseClientKey = "";
 let supabaseSession = null;
 let supabaseAuthSubscription = null;
 let supabaseSyncTimer = 0;
+let socialRealtimeChannel = null;
+let socialState = {
+  status: "idle",
+  message: "Entre no Supabase para usar amigos.",
+  profile: null,
+  friendships: [],
+  profiles: [],
+  sharedItems: [],
+  loading: false,
+};
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
@@ -147,6 +173,8 @@ function bindEvents() {
   $("#settingsForm").addEventListener("submit", handleSettingsSubmit);
   $("#supabaseConfigForm").addEventListener("submit", handleSupabaseConfigSubmit);
   $("#supabaseAuthForm").addEventListener("submit", handleSupabaseSignIn);
+  $("#socialProfileForm").addEventListener("submit", handleSocialProfileSubmit);
+  $("#friendInviteForm").addEventListener("submit", handleFriendInviteSubmit);
   $("#timelineImage").addEventListener("change", updateImagePreview);
 
   $("#newTaskButton").addEventListener("click", () => openTaskDialog());
@@ -167,6 +195,7 @@ function bindEvents() {
   $("#supabaseSignOutButton").addEventListener("click", handleSupabaseSignOut);
   $("#pushSupabaseButton").addEventListener("click", () => pushSupabaseState({ silent: false }));
   $("#pullSupabaseButton").addEventListener("click", () => pullSupabaseState({ silent: false }));
+  $("#publishSharedButton").addEventListener("click", () => publishSharedItems({ silent: false }));
   $("#exportButton").addEventListener("click", exportBackup);
   $("#importButton").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", importBackup);
@@ -242,6 +271,9 @@ function handleDocumentClick(event) {
   if (action === "open-image") openImageViewer(id, imageId);
   if (action === "copy-image-url") copyImageUrl(id, imageId);
   if (action === "delete-timeline-image") deleteTimelineImage(id, imageId);
+  if (action === "accept-friend") acceptFriendship(id);
+  if (action === "delete-friendship") deleteFriendship(id);
+  if (action === "delete-shared-item") deleteSharedItem(id);
 }
 
 function handleDocumentChange(event) {
@@ -277,6 +309,7 @@ function switchView(view) {
   $$(".view").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.viewPanel === view));
   renderAll();
   if (view === "news") loadPaleoNews({ force: true });
+  if (view === "friends") loadSocialData({ silent: true });
 }
 
 function createEmptyState() {
@@ -383,6 +416,7 @@ function hydrateMission(mission) {
     dueDate: mission.dueDate || "",
     steps,
     dinoIds: normalizeMissionDinoIds(mission.dinoIds),
+    visibility: normalizeVisibility(mission.visibility),
     tags: normalizeTags(mission.tags),
     createdAt: mission.createdAt || new Date().toISOString(),
     updatedAt: mission.updatedAt || "",
@@ -432,6 +466,7 @@ function hydrateDino(dino) {
     damage40: dino.damage40 || "",
     coinsPerMinute: dino.coinsPerMinute || "",
     copies: normalizeDinoCopies(dino.copies),
+    visibility: normalizeVisibility(dino.visibility),
     tags: normalizeTags(dino.tags),
     createdAt: dino.createdAt || new Date().toISOString(),
     updatedAt: dino.updatedAt || "",
@@ -455,6 +490,7 @@ function hydrateGoal(goal) {
     unit: goal.unit || "",
     dueDate: goal.dueDate || "",
     notes: goal.notes || "",
+    visibility: normalizeVisibility(goal.visibility),
     tags: normalizeTags(goal.tags),
     createdAt: goal.createdAt || new Date().toISOString(),
     updatedAt: goal.updatedAt || "",
@@ -485,6 +521,7 @@ function hydrateTimelineItem(item) {
     date: item.date || todayIso(),
     missionId: item.missionId || "",
     taskId: item.taskId || "",
+    visibility: normalizeVisibility(item.visibility),
     tags: normalizeTags(item.tags),
     images: Array.isArray(item.images) ? item.images.map(hydrateImage) : legacyImage,
     createdAt: item.createdAt || new Date().toISOString(),
@@ -680,11 +717,15 @@ function applySupabaseSession(session, message = "", options = {}) {
     state.settings.supabaseUserId = supabaseSession.user.id || "";
     if (state.settings.supabaseStatus !== "syncing") state.settings.supabaseStatus = "signed-in";
     state.settings.supabaseMessage = message || "Conta conectada. Use Enviar local ou Baixar nuvem.";
+    loadSocialData({ silent: true });
+    setupSocialRealtime();
   } else {
     state.settings.supabaseEmail = "";
     state.settings.supabaseUserId = "";
     state.settings.supabaseStatus = hasSupabaseConfig() ? "signed-out" : "not-configured";
     state.settings.supabaseMessage = message || (hasSupabaseConfig() ? "Supabase configurado. Entre na sua conta para sincronizar." : "Configure o Supabase para sincronizar seus dados entre maquinas.");
+    teardownSocialRealtime();
+    resetSocialState();
   }
   if (options.save !== false) saveState({ sync: false });
   if (options.render !== false) renderAll();
@@ -730,9 +771,11 @@ async function handleSupabaseConfigSubmit(event) {
       supabaseAuthSubscription.unsubscribe();
       supabaseAuthSubscription = null;
     }
+    teardownSocialRealtime();
     supabaseClient = null;
     supabaseClientKey = "";
     supabaseSession = null;
+    resetSocialState();
     applySupabaseSession(null, "Configure o Supabase para sincronizar seus dados entre maquinas.");
     showToast("Configuracao Supabase limpa.");
     return;
@@ -831,6 +874,7 @@ async function pushSupabaseState(options = {}) {
       { onConflict: "user_id" },
     );
     if (error) throw error;
+    await publishSharedItems({ silent: true });
 
     state.settings.supabaseStatus = "synced";
     state.settings.supabaseLastSyncedAt = syncedAt;
@@ -888,6 +932,388 @@ async function pullSupabaseState(options = {}) {
   }
 }
 
+function resetSocialState(message = "Entre no Supabase para usar amigos.") {
+  socialState = {
+    status: "idle",
+    message,
+    profile: null,
+    friendships: [],
+    profiles: [],
+    sharedItems: [],
+    loading: false,
+  };
+}
+
+async function loadSocialData(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!supabaseSession?.user?.id) {
+    resetSocialState();
+    renderAll();
+    return;
+  }
+
+  try {
+    socialState.loading = true;
+    if (!silent) renderFriends();
+    await ensureSocialProfile();
+    const userId = supabaseSession.user.id;
+    const { data: friendships, error: friendshipError } = await supabaseClient
+      .from(SUPABASE_FRIENDSHIPS_TABLE)
+      .select("*")
+      .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`)
+      .order("updated_at", { ascending: false });
+    if (friendshipError) throw friendshipError;
+
+    const { data: sharedItems, error: sharedError } = await supabaseClient
+      .from(SUPABASE_SHARED_ITEMS_TABLE)
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(80);
+    if (sharedError) throw sharedError;
+
+    const profileIds = new Set([userId]);
+    (friendships || []).forEach((friendship) => {
+      profileIds.add(friendship.requester_id);
+      profileIds.add(friendship.receiver_id);
+    });
+    (sharedItems || []).forEach((item) => profileIds.add(item.owner_id));
+
+    const { data: profiles, error: profilesError } = await supabaseClient
+      .from(SUPABASE_SOCIAL_PROFILES_TABLE)
+      .select("user_id, username, display_name, avatar_url, updated_at")
+      .in("user_id", Array.from(profileIds));
+    if (profilesError) throw profilesError;
+
+    socialState = {
+      status: "ready",
+      message: "Feed atualizado.",
+      profile: (profiles || []).find((profile) => profile.user_id === userId) || socialState.profile,
+      friendships: friendships || [],
+      profiles: profiles || [],
+      sharedItems: (sharedItems || []).filter((item) => item.owner_id !== userId || item.visibility !== "private"),
+      loading: false,
+    };
+    renderAll();
+  } catch (error) {
+    socialState.status = "error";
+    socialState.message = readableSupabaseError(error);
+    socialState.loading = false;
+    renderAll();
+    if (!silent) showToast(socialState.message);
+  }
+}
+
+async function ensureSocialProfile() {
+  const session = await requireSupabaseSession();
+  const userId = session.user.id;
+  const { data, error } = await supabaseClient
+    .from(SUPABASE_SOCIAL_PROFILES_TABLE)
+    .select("user_id, username, display_name, avatar_url, updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (data) {
+    socialState.profile = data;
+    return data;
+  }
+
+  const fallbackName = String(session.user.email || "Jogador").split("@")[0] || "Jogador";
+  const profile = {
+    user_id: userId,
+    username: normalizeUsername(`user${userId.slice(0, 8)}`),
+    display_name: fallbackName,
+    avatar_url: "",
+  };
+  const { data: created, error: createError } = await supabaseClient
+    .from(SUPABASE_SOCIAL_PROFILES_TABLE)
+    .upsert(profile, { onConflict: "user_id" })
+    .select("user_id, username, display_name, avatar_url, updated_at")
+    .single();
+  if (createError) throw createError;
+  socialState.profile = created;
+  return created;
+}
+
+async function handleSocialProfileSubmit(event) {
+  event.preventDefault();
+  if (!supabaseSession?.user) {
+    showToast("Entre no Supabase antes de salvar o perfil.");
+    return;
+  }
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const username = normalizeUsername(data.username);
+  const displayName = String(data.displayName || "").trim();
+  if (!username || username.length < 3) {
+    showToast("Use um usuario com pelo menos 3 caracteres.");
+    return;
+  }
+
+  try {
+    await withButtonBusy(form.querySelector("button[type='submit']"), "Salvando", async () => {
+      const { data: profile, error } = await supabaseClient
+        .from(SUPABASE_SOCIAL_PROFILES_TABLE)
+        .upsert(
+          {
+            user_id: supabaseSession.user.id,
+            username,
+            display_name: displayName || username,
+            avatar_url: socialState.profile?.avatar_url || "",
+          },
+          { onConflict: "user_id" },
+        )
+        .select("user_id, username, display_name, avatar_url, updated_at")
+        .single();
+      if (error) throw error;
+      socialState.profile = profile;
+      await loadSocialData({ silent: true });
+      showToast("Perfil salvo.");
+    });
+  } catch {
+    renderAll();
+  }
+}
+
+async function handleFriendInviteSubmit(event) {
+  event.preventDefault();
+  if (!supabaseSession?.user) {
+    showToast("Entre no Supabase antes de adicionar amigos.");
+    return;
+  }
+  const form = event.currentTarget;
+  const username = normalizeUsername(new FormData(form).get("username"));
+  if (!username) return;
+
+  try {
+    await withButtonBusy(form.querySelector("button[type='submit']"), "Enviando", async () => {
+      const { data: profile, error: profileError } = await supabaseClient
+        .from(SUPABASE_SOCIAL_PROFILES_TABLE)
+        .select("user_id, username, display_name")
+        .eq("username", username)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) throw new Error("Usuario nao encontrado.");
+      if (profile.user_id === supabaseSession.user.id) throw new Error("Voce nao precisa enviar convite para voce mesmo.");
+
+      const { error } = await supabaseClient.from(SUPABASE_FRIENDSHIPS_TABLE).insert({
+        requester_id: supabaseSession.user.id,
+        receiver_id: profile.user_id,
+        status: "pending",
+      });
+      if (error) throw error;
+      form.reset();
+      await loadSocialData({ silent: true });
+      showToast("Convite enviado.");
+    });
+  } catch {
+    renderAll();
+  }
+}
+
+async function acceptFriendship(id) {
+  if (!id || !supabaseSession?.user) return;
+  try {
+    const { error } = await supabaseClient
+      .from(SUPABASE_FRIENDSHIPS_TABLE)
+      .update({ status: "accepted", updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("receiver_id", supabaseSession.user.id);
+    if (error) throw error;
+    await loadSocialData({ silent: true });
+    showToast("Amigo adicionado.");
+  } catch (error) {
+    showToast(readableSupabaseError(error));
+  }
+}
+
+async function deleteFriendship(id) {
+  if (!id || !supabaseSession?.user) return;
+  try {
+    const { error } = await supabaseClient.from(SUPABASE_FRIENDSHIPS_TABLE).delete().eq("id", id);
+    if (error) throw error;
+    await loadSocialData({ silent: true });
+    showToast("Amizade atualizada.");
+  } catch (error) {
+    showToast(readableSupabaseError(error));
+  }
+}
+
+async function deleteSharedItem(id) {
+  if (!id || !supabaseSession?.user) return;
+  try {
+    const { error } = await supabaseClient.from(SUPABASE_SHARED_ITEMS_TABLE).delete().eq("id", id).eq("owner_id", supabaseSession.user.id);
+    if (error) throw error;
+    await loadSocialData({ silent: true });
+    showToast("Item removido do feed.");
+  } catch (error) {
+    showToast(readableSupabaseError(error));
+  }
+}
+
+async function publishSharedItems(options = {}) {
+  const silent = Boolean(options.silent);
+  try {
+    const session = await requireSupabaseSession();
+    await ensureSocialProfile();
+    const rows = buildSharedItemRows(session.user.id);
+    const existing = await supabaseClient.from(SUPABASE_SHARED_ITEMS_TABLE).select("id, item_type, item_id").eq("owner_id", session.user.id);
+    if (existing.error) throw existing.error;
+
+    const rowKeys = new Set(rows.map((row) => `${row.item_type}:${row.item_id}`));
+    const staleIds = (existing.data || []).filter((row) => !rowKeys.has(`${row.item_type}:${row.item_id}`)).map((row) => row.id);
+    if (staleIds.length) {
+      const { error } = await supabaseClient.from(SUPABASE_SHARED_ITEMS_TABLE).delete().in("id", staleIds);
+      if (error) throw error;
+    }
+
+    if (rows.length) {
+      const { error } = await supabaseClient.from(SUPABASE_SHARED_ITEMS_TABLE).upsert(rows, { onConflict: "owner_id,item_type,item_id" });
+      if (error) throw error;
+    }
+
+    await loadSocialData({ silent: true });
+    if (!silent) showToast(`${rows.length} item${rows.length === 1 ? "" : "s"} publicado${rows.length === 1 ? "" : "s"} no feed.`);
+  } catch (error) {
+    if (!silent) showToast(readableSupabaseError(error));
+    else console.warn("Publicacao social ignorada.", error);
+  }
+}
+
+function buildSharedItemRows(ownerId) {
+  const now = new Date().toISOString();
+  const rows = [
+    ...state.missions.filter((item) => normalizeVisibility(item.visibility) !== "private").map((mission) => buildMissionSharedRow(ownerId, mission, now)),
+    ...state.dinosaurs.filter((item) => normalizeVisibility(item.visibility) !== "private").map((dino) => buildDinoSharedRow(ownerId, dino, now)),
+    ...state.timeline.filter((item) => normalizeVisibility(item.visibility) !== "private").map((item) => buildTimelineSharedRow(ownerId, item, now)),
+    ...state.goals.filter((item) => normalizeVisibility(item.visibility) !== "private").map((goal) => buildGoalSharedRow(ownerId, goal, now)),
+  ];
+  return rows.filter(Boolean);
+}
+
+function buildMissionSharedRow(ownerId, mission, updatedAt) {
+  const progress = getMissionProgress(mission);
+  const image = getLinkedTimelineImages(mission.id).find((item) => item.source === "cloudinary" || String(item.url || "").startsWith("https://res.cloudinary.com/"));
+  return {
+    owner_id: ownerId,
+    item_type: "mission",
+    item_id: mission.id,
+    visibility: normalizeVisibility(mission.visibility, "friends"),
+    title: mission.name,
+    summary: mission.description || `${progress}% - ${missionStatusLabels[mission.status] || mission.status}`,
+    image_url: image?.url || "",
+    metadata: {
+      progress,
+      status: mission.status,
+      dueDate: mission.dueDate || "",
+      category: mission.category || "",
+      tags: normalizeTags(mission.tags),
+    },
+    source_updated_at: mission.updatedAt || mission.createdAt || updatedAt,
+    updated_at: updatedAt,
+  };
+}
+
+function buildDinoSharedRow(ownerId, dino, updatedAt) {
+  return {
+    owner_id: ownerId,
+    item_type: "dino",
+    item_id: dino.id,
+    visibility: normalizeVisibility(dino.visibility, "friends"),
+    title: dino.name,
+    summary: dino.notes || `LV ${dino.currentLevel}/${dino.targetLevel} - ${dinoRarityLabels[dino.rarity] || dino.rarity}`,
+    image_url: safeImageUrl(dino.wikiImageUrl),
+    metadata: {
+      progress: getDinoProgress(dino),
+      level: `${dino.currentLevel}/${dino.targetLevel}`,
+      rarity: dino.rarity,
+      classType: dino.classType,
+      dnaNeeded: dino.dnaNeeded,
+      foodNeeded: dino.foodNeeded,
+      tags: normalizeTags(dino.tags),
+    },
+    source_updated_at: dino.updatedAt || dino.createdAt || updatedAt,
+    updated_at: updatedAt,
+  };
+}
+
+function buildTimelineSharedRow(ownerId, item, updatedAt) {
+  const image = getTimelineImages(item).find((entry) => entry.source === "cloudinary" || String(entry.url || "").startsWith("https://res.cloudinary.com/"));
+  return {
+    owner_id: ownerId,
+    item_type: "timeline",
+    item_id: item.id,
+    visibility: normalizeVisibility(item.visibility, "friends"),
+    title: item.title,
+    summary: item.description || timelineTypeLabels[item.type] || item.type,
+    image_url: image?.url || "",
+    metadata: {
+      date: item.date || "",
+      type: item.type,
+      missionId: item.missionId || "",
+      imageCount: getTimelineImages(item).length,
+      tags: normalizeTags(item.tags),
+    },
+    source_updated_at: item.updatedAt || item.createdAt || updatedAt,
+    updated_at: updatedAt,
+  };
+}
+
+function buildGoalSharedRow(ownerId, goal, updatedAt) {
+  return {
+    owner_id: ownerId,
+    item_type: "goal",
+    item_id: goal.id,
+    visibility: normalizeVisibility(goal.visibility, "friends"),
+    title: goal.title,
+    summary: goal.notes || `${formatNumber(goal.current)} / ${formatNumber(goal.target)} ${goal.unit || ""}`,
+    image_url: "",
+    metadata: {
+      progress: getGoalProgress(goal),
+      current: goal.current,
+      target: goal.target,
+      unit: goal.unit || "",
+      dueDate: goal.dueDate || "",
+      tags: normalizeTags(goal.tags),
+    },
+    source_updated_at: goal.updatedAt || goal.createdAt || updatedAt,
+    updated_at: updatedAt,
+  };
+}
+
+function setupSocialRealtime() {
+  if (!supabaseClient || !supabaseSession?.user || socialRealtimeChannel) return;
+  socialRealtimeChannel = supabaseClient
+    .channel("planner-social-feed")
+    .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_SHARED_ITEMS_TABLE }, () => loadSocialData({ silent: true }))
+    .on("postgres_changes", { event: "*", schema: "public", table: SUPABASE_FRIENDSHIPS_TABLE }, () => loadSocialData({ silent: true }))
+    .subscribe();
+}
+
+function teardownSocialRealtime() {
+  if (socialRealtimeChannel && supabaseClient) {
+    supabaseClient.removeChannel(socialRealtimeChannel);
+  }
+  socialRealtimeChannel = null;
+}
+
+function getSocialProfile(userId) {
+  if (socialState.profile?.user_id === userId) return socialState.profile;
+  return socialState.profiles.find((profile) => profile.user_id === userId) || null;
+}
+
+function getProfileDisplayName(profile) {
+  return profile?.display_name || profile?.username || "Jogador";
+}
+
+function normalizeUsername(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]/g, "")
+    .slice(0, 28);
+}
+
 function prepareStateForSupabase() {
   const data = JSON.parse(JSON.stringify(state));
   data.settings = prepareSettingsForSupabase(data.settings);
@@ -923,7 +1349,10 @@ function prepareSettingsForSupabase(settings = {}) {
 
 function readableSupabaseError(error) {
   const message = String(error?.message || error || "");
-  if (message.includes(SUPABASE_TABLE)) return "Tabela do Supabase nao encontrada. Rode o arquivo supabase-schema.sql no SQL Editor.";
+  if (message.includes(SUPABASE_TABLE) || message.includes("planner_social_profiles") || message.includes("planner_friendships") || message.includes("planner_shared_items")) {
+    return "Tabela do Supabase nao encontrada. Rode o arquivo supabase-schema.sql atualizado no SQL Editor.";
+  }
+  if (message.toLowerCase().includes("duplicate key")) return "Esse usuario ou convite ja existe.";
   if (message.toLowerCase().includes("invalid login")) return "E-mail ou senha incorretos.";
   if (message.toLowerCase().includes("email not confirmed")) return "Confirme seu e-mail antes de entrar.";
   if (message.toLowerCase().includes("row-level security")) return "As regras de seguranca do Supabase bloquearam a acao. Confira o SQL de RLS.";
@@ -957,12 +1386,14 @@ function renderAll() {
   renderCalendar();
   renderDinosaurs();
   renderNews();
+  renderFriends();
   renderGoals();
   renderTimeline();
   renderTimelineMissionOptions();
   renderGallery();
   fillSettingsForm();
   fillSupabaseForms();
+  fillSocialProfileForm();
   renderCloudinaryStatus();
   renderSupabaseStatus();
   renderBackupStatus();
@@ -1155,6 +1586,114 @@ function renderNewsCard(item) {
   `;
 }
 
+function renderFriends() {
+  const status = $("#friendsStatus");
+  const requestsList = $("#friendRequestsList");
+  const friendsList = $("#friendsList");
+  const feed = $("#friendsFeed");
+  if (!status || !requestsList || !friendsList || !feed) return;
+
+  const isSignedIn = Boolean(supabaseSession?.user || state.settings.supabaseUserId);
+  const profile = socialState.profile;
+  const profileText = profile?.username ? `@${profile.username}` : "Configure seu usuario para receber convites.";
+  status.innerHTML = `
+    <div>
+      <strong>${escapeHtml(isSignedIn ? profileText : "Entre no Supabase")}</strong>
+      <span>${escapeHtml(isSignedIn ? socialState.message || "Amigos prontos." : "Conecte sua conta em Config para usar multiplayer.")}</span>
+    </div>
+  `;
+
+  const incoming = socialState.friendships.filter((friendship) => friendship.status === "pending" && friendship.receiver_id === state.settings.supabaseUserId);
+  const outgoing = socialState.friendships.filter((friendship) => friendship.status === "pending" && friendship.requester_id === state.settings.supabaseUserId);
+  const accepted = socialState.friendships.filter((friendship) => friendship.status === "accepted");
+
+  requestsList.innerHTML = isSignedIn
+    ? [...incoming.map(renderIncomingFriendRequest), ...outgoing.map(renderOutgoingFriendRequest)].join("") || emptyState("mail", "Sem convites pendentes")
+    : emptyState("log-in", "Entre para ver convites");
+
+  friendsList.innerHTML = isSignedIn
+    ? accepted.map(renderFriendRow).join("") || emptyState("users", "Nenhum amigo ainda")
+    : emptyState("users", "Entre para ver amigos");
+
+  feed.innerHTML = isSignedIn
+    ? socialState.sharedItems.map(renderSharedFeedCard).join("") || emptyState("radio", "Sem publicacoes dos amigos ainda")
+    : emptyState("radio", "Entre para ver o feed");
+
+  $("#publishSharedButton").disabled = !isSignedIn;
+}
+
+function renderIncomingFriendRequest(friendship) {
+  const profile = getSocialProfile(friendship.requester_id);
+  return `
+    <div class="friend-row">
+      <div>
+        <strong>${escapeHtml(getProfileDisplayName(profile))}</strong>
+        <span>@${escapeHtml(profile?.username || "usuario")}</span>
+      </div>
+      <div class="action-row">
+        <button class="secondary-button" type="button" data-action="accept-friend" data-id="${escapeHtml(friendship.id)}">Aceitar</button>
+        <button class="danger-button" type="button" data-action="delete-friendship" data-id="${escapeHtml(friendship.id)}">Recusar</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderOutgoingFriendRequest(friendship) {
+  const profile = getSocialProfile(friendship.receiver_id);
+  return `
+    <div class="friend-row">
+      <div>
+        <strong>${escapeHtml(getProfileDisplayName(profile))}</strong>
+        <span>Convite enviado</span>
+      </div>
+      <button class="danger-button" type="button" data-action="delete-friendship" data-id="${escapeHtml(friendship.id)}">Cancelar</button>
+    </div>
+  `;
+}
+
+function renderFriendRow(friendship) {
+  const otherId = friendship.requester_id === state.settings.supabaseUserId ? friendship.receiver_id : friendship.requester_id;
+  const profile = getSocialProfile(otherId);
+  return `
+    <div class="friend-row">
+      <div>
+        <strong>${escapeHtml(getProfileDisplayName(profile))}</strong>
+        <span>@${escapeHtml(profile?.username || "usuario")}</span>
+      </div>
+      <button class="danger-button" type="button" data-action="delete-friendship" data-id="${escapeHtml(friendship.id)}">Remover</button>
+    </div>
+  `;
+}
+
+function renderSharedFeedCard(item) {
+  const owner = getSocialProfile(item.owner_id);
+  const metadata = item.metadata || {};
+  const image = safeImageUrl(item.image_url || metadata.imageUrl);
+  const isMine = item.owner_id === state.settings.supabaseUserId;
+  return `
+    <article class="social-card">
+      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.title)}" loading="lazy" />` : ""}
+      <div class="item-title-row">
+        <h3>${escapeHtml(item.title || "Item compartilhado")}</h3>
+        <span class="tag">${escapeHtml(sharedItemTypeLabels[item.item_type] || item.item_type)}</span>
+        ${renderVisibilityPill(item.visibility)}
+      </div>
+      <p>${escapeHtml(item.summary || "")}</p>
+      <div class="meta-row">
+        <span class="status-pill">@${escapeHtml(owner?.username || "usuario")}</span>
+        <span class="status-pill">${escapeHtml(formatDateTime(item.updated_at || item.created_at))}</span>
+      </div>
+      ${renderSharedMetadata(metadata)}
+      ${isMine ? `<div class="card-actions"><button class="danger-button" type="button" data-action="delete-shared-item" data-id="${escapeHtml(item.id)}">Remover feed</button></div>` : ""}
+    </article>
+  `;
+}
+
+function renderSharedMetadata(metadata = {}) {
+  const chips = [metadata.progress ? `Progresso: ${metadata.progress}%` : "", metadata.level ? `Nivel: ${metadata.level}` : "", metadata.date ? formatDate(metadata.date) : ""].filter(Boolean);
+  return chips.length ? `<div class="wiki-stat-row">${chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}</div>` : "";
+}
+
 function renderGoals() {
   const list = $("#goalList");
   const statusFilter = $("#goalStatusFilter").value;
@@ -1298,6 +1837,7 @@ function renderMissionCard(mission) {
             <span class="status-pill status-${escapeHtml(mission.status)}">${escapeHtml(missionStatusLabels[mission.status] || mission.status)}</span>
             <span class="priority-pill priority-${escapeHtml(mission.priority)}">${escapeHtml(priorityLabels[mission.priority] || mission.priority)}</span>
             <span class="tag">${escapeHtml(categoryLabels[mission.category] || mission.category)}</span>
+            ${renderVisibilityPill(mission.visibility)}
             ${dueDate}
           </div>
           ${description}
@@ -1399,6 +1939,7 @@ function renderDinoCard(dino) {
         <h3>${escapeHtml(dino.name)}</h3>
         <span class="tag">${escapeHtml(dinoClassLabels[dino.classType] || dino.classType)}</span>
         <span class="status-pill">${escapeHtml(dinoRarityLabels[dino.rarity] || dino.rarity)}</span>
+        ${renderVisibilityPill(dino.visibility)}
       </div>
       <div class="progress-track" aria-label="Progresso ${progress}%">
         <div class="progress-fill" style="width: ${progress}%"></div>
@@ -1511,6 +2052,7 @@ function renderGoalCard(goal) {
           <div class="item-title-row">
             <h3>${escapeHtml(goal.title)}</h3>
             <span class="status-pill ${done ? "status-done" : "status-doing"}">${done ? "Concluída" : "Ativa"}</span>
+            ${renderVisibilityPill(goal.visibility)}
             ${dueDate}
           </div>
           ${goal.notes ? `<p class="item-description">${escapeHtml(goal.notes)}</p>` : ""}
@@ -1571,6 +2113,7 @@ function renderTimelineCard(item) {
         <div class="meta-row">
           <span class="status-pill">${escapeHtml(formatDate(item.date))}</span>
           ${mission ? `<span class="tag">${escapeHtml(mission.name)}</span>` : ""}
+          ${renderVisibilityPill(item.visibility)}
           <span class="source-pill ${sourceClass}">${escapeHtml(source)}</span>
           ${images.length ? `<span class="status-pill">${images.length} print${images.length > 1 ? "s" : ""}</span>` : ""}
         </div>
@@ -1749,6 +2292,7 @@ function handleMissionSubmit(event) {
     dueDate: data.dueDate || "",
     steps,
     dinoIds: getSelectedValues(form.elements.dinoIds),
+    visibility: normalizeVisibility(data.visibility, existing?.visibility || "private"),
     tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1827,6 +2371,7 @@ function handleDinoSubmit(event) {
     damage40: String(data.damage40 || "").trim(),
     coinsPerMinute: String(data.coinsPerMinute || "").trim(),
     copies: normalizeDinoCopies(existing?.copies),
+    visibility: normalizeVisibility(data.visibility, existing?.visibility || "private"),
     tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1884,6 +2429,7 @@ function handleGoalSubmit(event) {
     unit: String(data.unit || "").trim(),
     dueDate: data.dueDate || "",
     notes: String(data.notes || "").trim(),
+    visibility: normalizeVisibility(data.visibility, existing?.visibility || "private"),
     tags: parseTags(data.tags),
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1931,6 +2477,7 @@ async function handleTimelineSubmit(event) {
       date: data.date || todayIso(),
       missionId: data.missionId || "",
       taskId: existing?.taskId || "",
+      visibility: normalizeVisibility(data.visibility, existing?.visibility || "private"),
       tags: parseTags(data.tags),
       images,
       createdAt: existing?.createdAt || new Date().toISOString(),
@@ -2002,6 +2549,7 @@ function openMissionDialog(mission = null) {
   form.elements.priority.value = mission?.priority || "medium";
   form.elements.category.value = mission?.category || "dino";
   form.elements.dueDate.value = mission?.dueDate || "";
+  form.elements.visibility.value = normalizeVisibility(mission?.visibility);
   form.elements.steps.value = normalizeMissionSteps(mission || { steps: [] })
     .map((step) => (step.note ? `${step.text} | ${step.note}` : step.text))
     .join("\n");
@@ -2039,6 +2587,7 @@ function openDinoDialog(dino = null) {
   form.elements.dnaNeeded.value = dino?.dnaNeeded || 0;
   form.elements.foodNeeded.value = dino?.foodNeeded || 0;
   form.elements.missionId.value = dino?.missionId || "";
+  form.elements.visibility.value = normalizeVisibility(dino?.visibility);
   form.elements.notes.value = dino?.notes || "";
   form.elements.tags.value = formTagsValue(dino?.tags);
   form.elements.wikiTitle.value = dino?.wikiTitle || "";
@@ -2070,6 +2619,7 @@ function openGoalDialog(goal = null) {
   form.elements.target.value = goal?.target || 1;
   form.elements.unit.value = goal?.unit || "";
   form.elements.dueDate.value = goal?.dueDate || todayIso();
+  form.elements.visibility.value = normalizeVisibility(goal?.visibility);
   form.elements.notes.value = goal?.notes || "";
   form.elements.tags.value = formTagsValue(goal?.tags);
   showDialog("#goalDialog");
@@ -2821,6 +3371,7 @@ function openTimelineForEdit(id) {
   form.elements.date.value = item.date || todayIso();
   form.elements.missionId.value = item.missionId || "";
   form.elements.imageMode.value = "append";
+  form.elements.visibility.value = normalizeVisibility(item.visibility);
   form.elements.tags.value = formTagsValue(item.tags);
   $("#timelineFormTitle").textContent = "Editar registro";
   $("#saveTimelineButton span").textContent = "Salvar edição";
@@ -3333,6 +3884,13 @@ function fillSupabaseForms() {
   }
 }
 
+function fillSocialProfileForm() {
+  const form = $("#socialProfileForm");
+  if (!form || form.contains(document.activeElement)) return;
+  form.elements.displayName.value = socialState.profile?.display_name || "";
+  form.elements.username.value = socialState.profile?.username || "";
+}
+
 function renderCloudinaryStatus() {
   const label = $("#cloudinaryStatusLabel");
   const message = $("#cloudinaryStatusMessage");
@@ -3791,6 +4349,10 @@ function normalizeTags(tags) {
     });
 }
 
+function normalizeVisibility(value, fallback = "private") {
+  return Object.prototype.hasOwnProperty.call(visibilityLabels, value) ? value : fallback;
+}
+
 function formTagsValue(tags) {
   return normalizeTags(tags).join(", ");
 }
@@ -3799,6 +4361,11 @@ function renderTagRow(tags) {
   const cleanTags = normalizeTags(tags);
   if (!cleanTags.length) return "";
   return `<div class="tag-row">${cleanTags.map((tag) => `<span class="tag tag-custom">#${escapeHtml(tag)}</span>`).join("")}</div>`;
+}
+
+function renderVisibilityPill(value) {
+  const visibility = normalizeVisibility(value);
+  return `<span class="visibility-pill visibility-${escapeHtml(visibility)}">${escapeHtml(visibilityLabels[visibility])}</span>`;
 }
 
 function stripText(value) {
