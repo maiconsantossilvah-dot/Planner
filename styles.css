@@ -109,8 +109,11 @@ label span {
   top: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: minmax(230px, auto) minmax(260px, 1fr);
-  gap: 14px 18px;
+  grid-template-areas:
+    "brand search"
+    "nav nav";
+  grid-template-columns: minmax(230px, auto) minmax(280px, 420px);
+  gap: 12px 18px;
   align-items: center;
   min-height: var(--header-height);
   padding: 14px clamp(16px, 3vw, 34px) 12px;
@@ -120,6 +123,7 @@ label span {
 }
 
 .brand {
+  grid-area: brand;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -172,6 +176,7 @@ label span {
 
 .view-tabs {
   display: grid;
+  grid-area: nav;
   grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
   min-width: 0;
@@ -239,6 +244,7 @@ label span {
 }
 
 .global-search {
+  grid-area: search;
   position: relative;
   display: block;
   justify-self: end;
@@ -260,9 +266,24 @@ label span {
 }
 
 .main-area {
-  width: min(1420px, calc(100% - 32px));
+  width: min(1420px, calc(100% - 48px));
   margin: 0 auto;
   padding: 22px 0 48px;
+}
+
+#dashboardView {
+  width: min(1420px, 100%);
+}
+
+#dashboardView > .section-heading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+#dashboardView .section-heading .action-row {
+  align-self: center;
 }
 
 .view {
@@ -323,7 +344,9 @@ label span {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(21, 25, 22, 0.94);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.025), transparent 42%),
+    rgba(21, 25, 22, 0.94);
   box-shadow: var(--shadow);
 }
 
@@ -363,12 +386,18 @@ label span {
   gap: 16px;
 }
 
+#dashboardView .workspace-grid {
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+}
+
 .tool-panel,
 .upload-panel,
 .settings-panel {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(21, 25, 22, 0.94);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 140px),
+    rgba(21, 25, 22, 0.94);
   box-shadow: var(--shadow);
 }
 
@@ -1655,6 +1684,10 @@ svg {
 
 @media (max-width: 1100px) {
   .app-header {
+    grid-template-areas:
+      "brand"
+      "search"
+      "nav";
     grid-template-columns: 1fr;
   }
 
