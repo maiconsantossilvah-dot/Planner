@@ -3,6 +3,9 @@ const AUTO_BACKUP_KEY = "jurassic-planner-auto-backup-v2";
 const TRANSLATION_CACHE_KEY = "jurassic-planner-translation-cache-v1";
 const PALEO_NEWS_CACHE_KEY = "jurassic-planner-paleo-news-cache-v1";
 const SCHEMA_VERSION = 3;
+const SUPABASE_TABLE = "planner_profiles";
+const SUPABASE_SYNC_DEBOUNCE_MS = 1200;
+const SUPABASE_SYNC_MAX_PAYLOAD_SIZE = 1800000;
 const DINO_WIKI_API = "https://jurassic-world-the-mobile-game.fandom.com/api.php";
 const DINO_WIKI_BASE = "https://jurassic-world-the-mobile-game.fandom.com/wiki/";
 const DINO_WIKI_SOURCE_NAME = "Jurassic World: The Game Wiki";
@@ -106,6 +109,11 @@ let newsState = {
   message: "Abra a aba para carregar os últimos dinos.",
   progress: "",
 };
+let supabaseClient = null;
+let supabaseClientKey = "";
+let supabaseSession = null;
+let supabaseAuthSubscription = null;
+let supabaseSyncTimer = 0;
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
@@ -116,6 +124,7 @@ function init() {
   bindEvents();
   setTodayOnTimelineForm();
   renderAll();
+  initializeSupabase();
 }
 
 function bindEvents() {
@@ -136,6 +145,8 @@ function bindEvents() {
   $("#goalForm").addEventListener("submit", handleGoalSubmit);
   $("#timelineForm").addEventListener("submit", handleTimelineSubmit);
   $("#settingsForm").addEventListener("submit", handleSettingsSubmit);
+  $("#supabaseConfigForm").addEventListener("submit", handleSupabaseConfigSubmit);
+  $("#supabaseAuthForm").addEventListener("submit", handleSupabaseSignIn);
   $("#timelineImage").addEventListener("change", updateImagePreview);
 
   $("#newTaskButton").addEventListener("click", () => openTaskDialog());
@@ -151,6 +162,11 @@ function bindEvents() {
   $("#cancelTimelineEdit").addEventListener("click", resetTimelineForm);
   $("#exportTimelineButton").addEventListener("click", exportTimelineHtml);
   $("#testCloudinaryButton").addEventListener("click", testCloudinary);
+  $("#testSupabaseButton").addEventListener("click", testSupabaseConnection);
+  $("#supabaseSignUpButton").addEventListener("click", handleSupabaseSignUp);
+  $("#supabaseSignOutButton").addEventListener("click", handleSupabaseSignOut);
+  $("#pushSupabaseButton").addEventListener("click", () => pushSupabaseState({ silent: false }));
+  $("#pullSupabaseButton").addEventListener("click", () => pullSupabaseState({ silent: false }));
   $("#exportButton").addEventListener("click", exportBackup);
   $("#importButton").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", importBackup);
@@ -279,6 +295,15 @@ function createEmptyState() {
       cloudinaryStatus: "not-configured",
       cloudinaryMessage: "Preencha os campos e faça um teste de envio.",
       testedAt: "",
+      supabaseUrl: "",
+      supabaseAnonKey: "",
+      supabaseAutoSync: false,
+      supabaseStatus: "not-configured",
+      supabaseMessage: "Configure o Supabase para sincronizar seus dados entre maquinas.",
+      supabaseEmail: "",
+      supabaseUserId: "",
+      supabaseLastSyncedAt: "",
+      supabaseRemoteUpdatedAt: "",
     },
   };
 }
@@ -479,10 +504,12 @@ function hydrateImage(image) {
   };
 }
 
-function saveState() {
+function saveState(options = {}) {
+  const shouldSync = options.sync !== false;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     writeAutoBackup();
+    if (shouldSync) queueSupabaseSync();
     return true;
   } catch (error) {
     console.error("Falha ao salvar.", error);
@@ -547,6 +574,381 @@ function saveAndRender(message) {
   if (message) showToast(message);
 }
 
+function hasSupabaseConfig(settings = state.settings) {
+  return Boolean(String(settings.supabaseUrl || "").trim() && String(settings.supabaseAnonKey || "").trim());
+}
+
+function normalizeSupabaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function getSupabaseSettingsSnapshot(settings = state.settings) {
+  return {
+    supabaseUrl: settings.supabaseUrl || "",
+    supabaseAnonKey: settings.supabaseAnonKey || "",
+    supabaseAutoSync: Boolean(settings.supabaseAutoSync),
+    supabaseStatus: settings.supabaseStatus || "not-configured",
+    supabaseMessage: settings.supabaseMessage || "",
+    supabaseEmail: settings.supabaseEmail || "",
+    supabaseUserId: settings.supabaseUserId || "",
+    supabaseLastSyncedAt: settings.supabaseLastSyncedAt || "",
+    supabaseRemoteUpdatedAt: settings.supabaseRemoteUpdatedAt || "",
+  };
+}
+
+function saveSupabaseConfigFromForm() {
+  const form = $("#supabaseConfigForm");
+  const data = Object.fromEntries(new FormData(form).entries());
+  state.settings.supabaseUrl = normalizeSupabaseUrl(data.supabaseUrl);
+  state.settings.supabaseAnonKey = String(data.supabaseAnonKey || "").trim();
+  state.settings.supabaseAutoSync = Boolean(data.supabaseAutoSync);
+}
+
+function getSupabaseAuthCredentials() {
+  const data = Object.fromEntries(new FormData($("#supabaseAuthForm")).entries());
+  return {
+    email: String(data.email || "").trim(),
+    password: String(data.password || ""),
+  };
+}
+
+function getSupabaseClient(force = false) {
+  const settings = state.settings;
+  if (!hasSupabaseConfig(settings)) {
+    throw new Error("Preencha Project URL e chave publica do Supabase.");
+  }
+
+  try {
+    const parsed = new URL(settings.supabaseUrl);
+    if (!parsed.protocol.startsWith("http")) throw new Error("URL invalida.");
+  } catch {
+    throw new Error("Project URL do Supabase invalida.");
+  }
+
+  if (!window.supabase?.createClient) {
+    throw new Error("Biblioteca do Supabase nao carregou. Confira a conexao da pagina.");
+  }
+
+  const clientKey = `${settings.supabaseUrl}|${settings.supabaseAnonKey}`;
+  if (!force && supabaseClient && supabaseClientKey === clientKey) return supabaseClient;
+
+  if (supabaseAuthSubscription) {
+    supabaseAuthSubscription.unsubscribe();
+    supabaseAuthSubscription = null;
+  }
+
+  supabaseClient = window.supabase.createClient(settings.supabaseUrl, settings.supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  });
+  supabaseClientKey = clientKey;
+  return supabaseClient;
+}
+
+async function initializeSupabase(options = {}) {
+  if (!hasSupabaseConfig()) {
+    if (state.settings.supabaseStatus !== "not-configured") {
+      applySupabaseSession(null, "Configure o Supabase para sincronizar seus dados entre maquinas.");
+    }
+    return;
+  }
+
+  try {
+    const client = getSupabaseClient(Boolean(options.force));
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+    applySupabaseSession(data.session, data.session ? "Conta Supabase conectada." : "Supabase configurado. Entre na sua conta para sincronizar.", { render: false });
+
+    const authListener = client.auth.onAuthStateChange((_event, session) => {
+      applySupabaseSession(session, session ? "Conta Supabase conectada." : "Conta Supabase desconectada.");
+    });
+    supabaseAuthSubscription = authListener.data?.subscription || null;
+    saveState({ sync: false });
+    renderAll();
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+function applySupabaseSession(session, message = "", options = {}) {
+  supabaseSession = session || null;
+  if (supabaseSession?.user) {
+    state.settings.supabaseEmail = supabaseSession.user.email || state.settings.supabaseEmail || "";
+    state.settings.supabaseUserId = supabaseSession.user.id || "";
+    if (state.settings.supabaseStatus !== "syncing") state.settings.supabaseStatus = "signed-in";
+    state.settings.supabaseMessage = message || "Conta conectada. Use Enviar local ou Baixar nuvem.";
+  } else {
+    state.settings.supabaseEmail = "";
+    state.settings.supabaseUserId = "";
+    state.settings.supabaseStatus = hasSupabaseConfig() ? "signed-out" : "not-configured";
+    state.settings.supabaseMessage = message || (hasSupabaseConfig() ? "Supabase configurado. Entre na sua conta para sincronizar." : "Configure o Supabase para sincronizar seus dados entre maquinas.");
+  }
+  if (options.save !== false) saveState({ sync: false });
+  if (options.render !== false) renderAll();
+}
+
+function setSupabaseStatus(status, message, options = {}) {
+  state.settings.supabaseStatus = status;
+  state.settings.supabaseMessage = message;
+  if (options.save !== false) saveState({ sync: false });
+  if (options.render !== false) renderAll();
+  if (options.toast) showToast(message);
+}
+
+function canAutoSyncSupabase() {
+  return Boolean(state.settings.supabaseAutoSync && supabaseClient && supabaseSession?.user?.id && hasSupabaseConfig());
+}
+
+function queueSupabaseSync() {
+  if (!canAutoSyncSupabase()) return;
+  window.clearTimeout(supabaseSyncTimer);
+  supabaseSyncTimer = window.setTimeout(() => {
+    pushSupabaseState({ silent: true });
+  }, SUPABASE_SYNC_DEBOUNCE_MS);
+}
+
+async function requireSupabaseSession() {
+  const client = getSupabaseClient();
+  if (!supabaseSession?.user) {
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+    supabaseSession = data.session;
+  }
+  if (!supabaseSession?.user) throw new Error("Entre na sua conta Supabase primeiro.");
+  return supabaseSession;
+}
+
+async function handleSupabaseConfigSubmit(event) {
+  event.preventDefault();
+  saveSupabaseConfigFromForm();
+  saveState({ sync: false });
+  if (!hasSupabaseConfig()) {
+    if (supabaseAuthSubscription) {
+      supabaseAuthSubscription.unsubscribe();
+      supabaseAuthSubscription = null;
+    }
+    supabaseClient = null;
+    supabaseClientKey = "";
+    supabaseSession = null;
+    applySupabaseSession(null, "Configure o Supabase para sincronizar seus dados entre maquinas.");
+    showToast("Configuracao Supabase limpa.");
+    return;
+  }
+  await initializeSupabase({ force: true });
+  showToast("Configuracao Supabase salva.");
+}
+
+async function testSupabaseConnection() {
+  saveSupabaseConfigFromForm();
+  try {
+    await withButtonBusy("#testSupabaseButton", "Testando", async () => {
+      const client = getSupabaseClient(true);
+      const { data, error } = await client.auth.getSession();
+      if (error) throw error;
+      applySupabaseSession(data.session, data.session ? "Supabase pronto e conta conectada." : "Supabase pronto. Entre na sua conta para sincronizar.");
+      showToast("Supabase respondeu.");
+    });
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+async function handleSupabaseSignIn(event) {
+  event.preventDefault();
+  saveSupabaseConfigFromForm();
+  const credentials = getSupabaseAuthCredentials();
+  if (!credentials.email || !credentials.password) {
+    showToast("Preencha e-mail e senha.");
+    return;
+  }
+
+  try {
+    await withButtonBusy("#supabaseSignInButton", "Entrando", async () => {
+      const client = getSupabaseClient();
+      const { data, error } = await client.auth.signInWithPassword(credentials);
+      if (error) throw error;
+      applySupabaseSession(data.session, "Conta conectada. Escolha Enviar local ou Baixar nuvem.");
+      showToast("Conta Supabase conectada.");
+    });
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+async function handleSupabaseSignUp() {
+  saveSupabaseConfigFromForm();
+  const credentials = getSupabaseAuthCredentials();
+  if (!credentials.email || !credentials.password) {
+    showToast("Preencha e-mail e senha.");
+    return;
+  }
+
+  try {
+    await withButtonBusy("#supabaseSignUpButton", "Criando", async () => {
+      const client = getSupabaseClient();
+      const { data, error } = await client.auth.signUp(credentials);
+      if (error) throw error;
+      applySupabaseSession(data.session, data.session ? "Conta criada e conectada." : "Conta criada. Se o Supabase pedir confirmacao, confira seu e-mail.");
+      showToast(data.session ? "Conta criada." : "Conta criada. Confira seu e-mail.");
+    });
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+async function handleSupabaseSignOut() {
+  try {
+    await withButtonBusy("#supabaseSignOutButton", "Saindo", async () => {
+      const client = getSupabaseClient();
+      const { error } = await client.auth.signOut();
+      if (error) throw error;
+      applySupabaseSession(null, "Conta Supabase desconectada.");
+      showToast("Conta desconectada.");
+    });
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+async function pushSupabaseState(options = {}) {
+  const silent = Boolean(options.silent);
+  const runner = async () => {
+    const session = await requireSupabaseSession();
+    const prepared = prepareStateForSupabase();
+    const syncedAt = new Date().toISOString();
+    setSupabaseStatus("syncing", "Enviando dados para o Supabase...", { save: true, render: !silent });
+
+    const { error } = await supabaseClient.from(SUPABASE_TABLE).upsert(
+      {
+        user_id: session.user.id,
+        schema_version: SCHEMA_VERSION,
+        data: prepared.data,
+        updated_at: syncedAt,
+      },
+      { onConflict: "user_id" },
+    );
+    if (error) throw error;
+
+    state.settings.supabaseStatus = "synced";
+    state.settings.supabaseLastSyncedAt = syncedAt;
+    state.settings.supabaseRemoteUpdatedAt = syncedAt;
+    state.settings.supabaseMessage = prepared.skippedLocalImages
+      ? `Metadados enviados. ${prepared.localImageCount} print${prepared.localImageCount > 1 ? "s locais ficaram" : " local ficou"} fora; envie pelo Cloudinary para sincronizar imagens.`
+      : `Metadados enviados em ${formatDateTime(syncedAt)}. Imagens ficam no Cloudinary.`;
+    saveState({ sync: false });
+    renderAll();
+    if (!silent) showToast(prepared.skippedLocalImages ? "Metadados enviados; prints locais nao subiram." : "Metadados enviados ao Supabase.");
+  };
+
+  try {
+    if (silent) await runner();
+    else await withButtonBusy("#pushSupabaseButton", "Enviando", runner);
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+async function pullSupabaseState(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent && !confirm("Baixar os dados da nuvem e substituir os dados locais desta maquina?")) return;
+
+  const runner = async () => {
+    const session = await requireSupabaseSession();
+    setSupabaseStatus("syncing", "Baixando dados do Supabase...", { save: true, render: !silent });
+    const { data, error } = await supabaseClient.from(SUPABASE_TABLE).select("data, schema_version, updated_at").eq("user_id", session.user.id).maybeSingle();
+    if (error) throw error;
+    if (!data?.data) {
+      setSupabaseStatus("signed-in", "Nenhum dado salvo na nuvem ainda. Use Enviar local para criar seu backup Supabase.", { toast: !silent });
+      return;
+    }
+
+    const supabaseSettings = getSupabaseSettingsSnapshot();
+    state = hydrateState(data.data);
+    state.settings = {
+      ...state.settings,
+      ...supabaseSettings,
+      supabaseStatus: "synced",
+      supabaseMessage: `Dados baixados em ${formatDateTime(new Date().toISOString())}.`,
+      supabaseLastSyncedAt: new Date().toISOString(),
+      supabaseRemoteUpdatedAt: data.updated_at || "",
+    };
+    saveState({ sync: false });
+    renderAll();
+    if (!silent) showToast("Dados baixados do Supabase.");
+  };
+
+  try {
+    if (silent) await runner();
+    else await withButtonBusy("#pullSupabaseButton", "Baixando", runner);
+  } catch (error) {
+    setSupabaseStatus("error", readableSupabaseError(error));
+  }
+}
+
+function prepareStateForSupabase() {
+  const data = JSON.parse(JSON.stringify(state));
+  data.settings = prepareSettingsForSupabase(data.settings);
+  let localImageCount = 0;
+  data.timeline = data.timeline.map((item) => ({
+    ...item,
+    images: (item.images || []).filter((image) => {
+      const isCloudinary = image.source === "cloudinary" || String(image.url || "").startsWith("https://res.cloudinary.com/");
+      if (!isCloudinary) localImageCount += 1;
+      return isCloudinary;
+    }),
+  }));
+
+  if (JSON.stringify(data).length > SUPABASE_SYNC_MAX_PAYLOAD_SIZE) {
+    throw new Error("Metadados grandes demais para sincronizar agora. Exporte um backup e limpe prints locais antigos.");
+  }
+
+  return { data, skippedLocalImages: localImageCount > 0, localImageCount };
+}
+
+function prepareSettingsForSupabase(settings = {}) {
+  return {
+    ...settings,
+    supabaseAnonKey: "",
+    supabaseStatus: "not-configured",
+    supabaseMessage: "",
+    supabaseEmail: "",
+    supabaseUserId: "",
+    supabaseLastSyncedAt: "",
+    supabaseRemoteUpdatedAt: "",
+  };
+}
+
+function readableSupabaseError(error) {
+  const message = String(error?.message || error || "");
+  if (message.includes(SUPABASE_TABLE)) return "Tabela do Supabase nao encontrada. Rode o arquivo supabase-schema.sql no SQL Editor.";
+  if (message.toLowerCase().includes("invalid login")) return "E-mail ou senha incorretos.";
+  if (message.toLowerCase().includes("email not confirmed")) return "Confirme seu e-mail antes de entrar.";
+  if (message.toLowerCase().includes("row-level security")) return "As regras de seguranca do Supabase bloquearam a acao. Confira o SQL de RLS.";
+  if (message.toLowerCase().includes("failed to fetch")) return "Nao consegui conectar ao Supabase. Confira URL, chave publica e internet.";
+  return message || "Supabase retornou um erro.";
+}
+
+async function withButtonBusy(selector, busyLabel, task) {
+  const button = typeof selector === "string" ? $(selector) : selector;
+  const label = button?.querySelector("span");
+  const previousLabel = label?.textContent || "";
+  if (button) button.disabled = true;
+  if (label && busyLabel) label.textContent = busyLabel;
+  try {
+    return await task();
+  } catch (error) {
+    showToast(readableSupabaseError(error));
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+    if (label) label.textContent = previousLabel;
+    refreshIcons();
+  }
+}
+
 function renderAll() {
   renderHeaderStatus();
   renderDashboard();
@@ -560,20 +962,32 @@ function renderAll() {
   renderTimelineMissionOptions();
   renderGallery();
   fillSettingsForm();
+  fillSupabaseForms();
   renderCloudinaryStatus();
+  renderSupabaseStatus();
   renderBackupStatus();
   refreshIcons();
 }
 
 function renderHeaderStatus() {
   const badge = $("#syncBadge");
-  const status = state.settings.cloudinaryStatus;
+  const cloudStatus = state.settings.cloudinaryStatus;
+  const syncStatus = state.settings.supabaseStatus;
   badge.classList.remove("is-cloud", "is-error");
 
-  if (status === "ready") {
+  if (syncStatus === "signed-in" || syncStatus === "synced") {
+    badge.textContent = state.settings.supabaseAutoSync ? "Supabase auto" : "Supabase conectado";
+    badge.classList.add("is-cloud");
+  } else if (syncStatus === "syncing") {
+    badge.textContent = "Sincronizando";
+    badge.classList.add("is-cloud");
+  } else if (syncStatus === "error") {
+    badge.textContent = "Supabase com erro";
+    badge.classList.add("is-error");
+  } else if (cloudStatus === "ready") {
     badge.textContent = "Cloudinary OK";
     badge.classList.add("is-cloud");
-  } else if (status === "error") {
+  } else if (cloudStatus === "error") {
     badge.textContent = "Cloudinary com erro";
     badge.classList.add("is-error");
   } else {
@@ -1529,7 +1943,15 @@ async function handleTimelineSubmit(event) {
 
     resetTimelineForm();
     saved = true;
-    saveAndRender(uploadedImages.some((image) => image.source === "cloudinary") ? "Registro salvo com print no Cloudinary." : "Registro salvo.");
+    const hasCloudinaryImage = uploadedImages.some((image) => image.source === "cloudinary");
+    const hasLocalImage = uploadedImages.some((image) => image.source === "local");
+    const syncConfigured = hasSupabaseConfig() || Boolean(supabaseSession?.user);
+    const message = hasCloudinaryImage
+      ? "Registro salvo com print no Cloudinary."
+      : hasLocalImage && syncConfigured
+        ? "Registro salvo localmente. Para sincronizar a imagem entre maquinas, configure o Cloudinary."
+        : "Registro salvo.";
+    saveAndRender(message);
   } catch (error) {
     console.error(error);
     showToast("Não consegui salvar esse registro.");
@@ -2896,6 +3318,21 @@ function fillSettingsForm() {
   form.elements.folder.value = state.settings.folder || "jurassic-planner";
 }
 
+function fillSupabaseForms() {
+  const configForm = $("#supabaseConfigForm");
+  if (!configForm.contains(document.activeElement)) {
+    configForm.elements.supabaseUrl.value = state.settings.supabaseUrl || "";
+    configForm.elements.supabaseAnonKey.value = state.settings.supabaseAnonKey || "";
+    configForm.elements.supabaseAutoSync.checked = Boolean(state.settings.supabaseAutoSync);
+  }
+
+  const authForm = $("#supabaseAuthForm");
+  if (!authForm.contains(document.activeElement)) {
+    authForm.elements.email.value = state.settings.supabaseEmail || "";
+    authForm.elements.password.value = "";
+  }
+}
+
 function renderCloudinaryStatus() {
   const label = $("#cloudinaryStatusLabel");
   const message = $("#cloudinaryStatusMessage");
@@ -2903,8 +3340,41 @@ function renderCloudinaryStatus() {
   label.className = `status-pill cloud-status-${status}`;
   label.textContent = status === "ready" ? "Configurado" : status === "error" ? "Erro no upload" : "Não configurado";
   message.textContent = state.settings.cloudinaryMessage || "Preencha os campos e faça um teste de envio.";
-  $("#storageModeText").textContent =
-    status === "ready" ? "Dados ficam neste navegador; prints novos podem ir para o Cloudinary." : "Dados e prints sem Cloudinary ficam apenas neste navegador.";
+  if (state.settings.supabaseStatus === "signed-in" || state.settings.supabaseStatus === "synced") {
+    $("#storageModeText").textContent =
+      status === "ready" ? "Metadados no Supabase; imagens no Cloudinary." : "Metadados podem ir ao Supabase, mas prints precisam do Cloudinary para sincronizar.";
+  } else {
+    $("#storageModeText").textContent =
+      status === "ready" ? "Dados ficam neste navegador; prints novos podem ir para o Cloudinary." : "Dados e prints sem Cloudinary ficam apenas neste navegador.";
+  }
+}
+
+function renderSupabaseStatus() {
+  const label = $("#supabaseStatusLabel");
+  const message = $("#supabaseStatusMessage");
+  const userText = $("#supabaseUserText");
+  const status = state.settings.supabaseStatus || "not-configured";
+  const statusLabels = {
+    "not-configured": "Nao configurado",
+    "signed-out": "Aguardando login",
+    "signed-in": "Conectado",
+    syncing: "Sincronizando",
+    synced: "Sincronizado",
+    error: "Erro",
+  };
+
+  label.className = `status-pill sync-status-${status}`;
+  label.textContent = statusLabels[status] || status;
+  message.textContent = state.settings.supabaseMessage || "Configure o Supabase para sincronizar seus dados entre maquinas.";
+  userText.textContent = state.settings.supabaseEmail ? `Conectado como ${state.settings.supabaseEmail}` : "Nenhuma conta conectada.";
+
+  const isConfigured = hasSupabaseConfig();
+  const isSignedIn = Boolean(supabaseSession?.user || state.settings.supabaseUserId);
+  $("#supabaseSignInButton").disabled = !isConfigured || isSignedIn;
+  $("#supabaseSignUpButton").disabled = !isConfigured || isSignedIn;
+  $("#supabaseSignOutButton").disabled = !isConfigured || !isSignedIn;
+  $("#pushSupabaseButton").disabled = !isConfigured || !isSignedIn;
+  $("#pullSupabaseButton").disabled = !isConfigured || !isSignedIn;
 }
 
 function renderBackupStatus() {

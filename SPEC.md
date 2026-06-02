@@ -2,12 +2,14 @@
 
 ## Escopo implementado
 
-Implementado nesta rodada, sem login/sincronização:
+Implementado nesta rodada:
 
 - calendário de eventos
 - sistema de dinossauros
 - integração de dinos com a Jurassic World: The Game Wiki / Fandom e Paleo.gg
 - aba News com últimos dinos lançados do Paleo.gg
+- sincronização com Supabase usando login por e-mail/senha
+- imagens no Cloudinary e metadados no Supabase
 - metas semanais
 - painel inteligente
 - exportação da timeline
@@ -130,6 +132,25 @@ A galeria mostra todos os prints da timeline com filtros por:
 
 A timeline pode ser exportada como arquivo HTML.
 
+## Supabase E Cloudinary
+
+O app usa dois serviços em conjunto:
+
+- Cloudinary guarda os arquivos de imagem dos prints.
+- Supabase guarda os metadados: tarefas, missões, dinos, metas, eventos, timeline, URLs do Cloudinary e `publicId`.
+
+Fluxo:
+
+1. Usuário configura Cloudinary em `Config`.
+2. Usuário roda `supabase-schema.sql` no projeto Supabase.
+3. Usuário informa Project URL e chave pública do Supabase.
+4. Usuário cria conta ou entra com e-mail/senha.
+5. `Enviar local` sobe os metadados locais.
+6. `Baixar nuvem` substitui os dados locais pelos metadados da nuvem.
+7. Sincronização automática envia mudanças depois do login.
+
+Prints locais em base64 não são enviados ao Supabase. Eles continuam funcionando localmente, mas só viajam entre máquinas quando forem enviados ao Cloudinary.
+
 ## Tags Personalizadas
 
 Tags podem ser usadas em:
@@ -143,7 +164,6 @@ Tags podem ser usadas em:
 
 ## Fora Do Escopo
 
-- login
-- sincronização entre aparelhos
-- banco remoto
+- multiplayer com amigos
+- compartilhamento seletivo de metas, dinos e prints
 - PWA/instalação como aplicativo

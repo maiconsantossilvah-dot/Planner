@@ -31,6 +31,8 @@ Também é possível abrir `index.html` direto no navegador.
 - exportação da timeline em HTML
 - tags personalizadas em tarefas, missões, timeline, dinos, metas e eventos
 - configuração e teste do Cloudinary
+- sincronização com Supabase usando login por e-mail/senha
+- imagens no Cloudinary e metadados no Supabase
 - backup JSON com prévia de importação
 - limpeza apenas de prints locais
 - layout melhorado para celular
@@ -47,6 +49,22 @@ No Cloudinary, crie um upload preset sem assinatura para imagens. Depois, no app
 6. Clique em `Testar Cloudinary`.
 
 Sem essa configuração, os prints ficam salvos apenas no navegador.
+
+## Supabase
+
+O Supabase guarda os metadados do planner: tarefas, missões, dinos, metas, timeline, links do Cloudinary e `publicId` dos prints. As imagens em si continuam no Cloudinary.
+
+Para ativar:
+
+1. Crie um projeto no Supabase.
+2. Abra o SQL Editor e rode o arquivo `supabase-schema.sql`.
+3. Em `Config`, preencha `Project URL` e a chave pública anon/publishable.
+4. Clique em `Salvar Supabase`.
+5. Crie uma conta ou entre com e-mail/senha.
+6. Use `Enviar local` para subir os metadados desta máquina ou `Baixar nuvem` para trazer os dados de outra máquina.
+7. Ative a sincronização automática se quiser enviar mudanças novas depois do login.
+
+Prints locais em base64 não são enviados ao Supabase. Para sincronizar imagens entre máquinas, deixe o Cloudinary configurado antes de salvar novos prints.
 
 ## Wiki Dos Dinos
 
@@ -86,4 +104,5 @@ A aba `News` checa o Paleo.gg sempre que é aberta. Se a versão da base mudou, 
 - `index.html`: estrutura do app
 - `styles.css`: visual responsivo
 - `app.js`: tarefas, missões, timeline, backup e upload Cloudinary
+- `supabase-schema.sql`: tabela e regras de segurança para sincronização
 - `SPEC.md`: melhorias implementadas e próximos caminhos

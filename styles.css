@@ -582,6 +582,23 @@ label span {
   color: var(--green);
 }
 
+.sync-status-synced,
+.sync-status-signed-in {
+  background: rgba(117, 217, 107, 0.12);
+  color: var(--green);
+}
+
+.sync-status-syncing,
+.sync-status-signed-out {
+  background: rgba(95, 215, 207, 0.12);
+  color: var(--cyan);
+}
+
+.sync-status-error {
+  background: rgba(238, 116, 111, 0.13);
+  color: var(--red);
+}
+
 .status-doing {
   background: rgba(240, 184, 75, 0.15);
   color: var(--amber);
@@ -1283,6 +1300,48 @@ label span {
   color: var(--muted-strong);
 }
 
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101311;
+}
+
+.toggle-row input {
+  flex: 0 0 18px;
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+  accent-color: var(--green);
+}
+
+.toggle-row span {
+  min-width: 0;
+  color: var(--muted-strong);
+}
+
+.sync-status-card {
+  border-color: rgba(95, 215, 207, 0.35);
+}
+
+.sync-account-card {
+  min-height: 52px;
+}
+
+.sync-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sync-actions button {
+  width: 100%;
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -1567,6 +1626,7 @@ svg {
   .copy-form,
   .two-cols,
   .three-cols,
+  .sync-actions,
   .preview-grid {
     grid-template-columns: 1fr;
   }

@@ -6,6 +6,7 @@
     <title>Jurassic Planner</title>
     <link rel="stylesheet" href="styles.css" />
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -535,6 +536,82 @@
                 <button id="testCloudinaryButton" class="secondary-button" type="button">
                   <i data-lucide="cloud-upload"></i>
                   <span>Testar Cloudinary</span>
+                </button>
+              </div>
+            </form>
+
+            <form id="supabaseConfigForm" class="settings-panel">
+              <div class="panel-heading">
+                <h3>Supabase</h3>
+              </div>
+              <div class="cloud-status-card sync-status-card">
+                <span id="supabaseStatusLabel" class="status-pill">Nao configurado</span>
+                <p id="supabaseStatusMessage">Configure o Supabase para sincronizar seus dados entre maquinas.</p>
+              </div>
+              <label>
+                <span>Project URL</span>
+                <input name="supabaseUrl" type="url" placeholder="https://seu-projeto.supabase.co" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Chave publica</span>
+                <input name="supabaseAnonKey" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label class="toggle-row">
+                <input name="supabaseAutoSync" type="checkbox" />
+                <span>Sincronizar automaticamente depois do login</span>
+              </label>
+              <div class="action-row">
+                <button class="primary-button" type="submit">
+                  <i data-lucide="save"></i>
+                  <span>Salvar Supabase</span>
+                </button>
+                <button id="testSupabaseButton" class="secondary-button" type="button">
+                  <i data-lucide="plug"></i>
+                  <span>Testar</span>
+                </button>
+              </div>
+            </form>
+
+            <form id="supabaseAuthForm" class="settings-panel">
+              <div class="panel-heading">
+                <h3>Conta e nuvem</h3>
+              </div>
+              <div class="storage-warning sync-account-card">
+                <i data-lucide="user-round"></i>
+                <span id="supabaseUserText">Nenhuma conta conectada.</span>
+              </div>
+              <div class="form-row two-cols">
+                <label>
+                  <span>E-mail</span>
+                  <input name="email" type="email" autocomplete="email" />
+                </label>
+                <label>
+                  <span>Senha</span>
+                  <input name="password" type="password" autocomplete="current-password" />
+                </label>
+              </div>
+              <div class="action-row">
+                <button id="supabaseSignInButton" class="primary-button" type="submit">
+                  <i data-lucide="log-in"></i>
+                  <span>Entrar</span>
+                </button>
+                <button id="supabaseSignUpButton" class="secondary-button" type="button">
+                  <i data-lucide="user-plus"></i>
+                  <span>Criar conta</span>
+                </button>
+                <button id="supabaseSignOutButton" class="secondary-button" type="button">
+                  <i data-lucide="log-out"></i>
+                  <span>Sair</span>
+                </button>
+              </div>
+              <div class="sync-actions">
+                <button id="pushSupabaseButton" class="secondary-button" type="button">
+                  <i data-lucide="cloud-upload"></i>
+                  <span>Enviar local</span>
+                </button>
+                <button id="pullSupabaseButton" class="secondary-button" type="button">
+                  <i data-lucide="cloud-download"></i>
+                  <span>Baixar nuvem</span>
                 </button>
               </div>
             </form>
