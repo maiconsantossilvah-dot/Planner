@@ -108,8 +108,8 @@ label span {
   top: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: minmax(210px, 0.9fr) minmax(360px, 1.45fr) minmax(220px, 0.8fr);
-  gap: 16px;
+  grid-template-columns: minmax(220px, auto) minmax(260px, 420px);
+  gap: 12px 18px;
   align-items: center;
   min-height: var(--header-height);
   padding: 14px clamp(16px, 3vw, 34px);
@@ -170,11 +170,17 @@ label span {
 }
 
 .view-tabs {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
   min-width: 0;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  gap: 4px;
+  padding: 5px;
+  overflow: visible;
+  border: 1px solid rgba(51, 58, 50, 0.9);
+  border-radius: var(--radius);
+  background: rgba(16, 19, 17, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .tab-button,
@@ -194,26 +200,47 @@ label span {
 }
 
 .tab-button {
-  flex: 0 0 auto;
-  padding: 0 12px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 8px;
   background: transparent;
   color: var(--muted);
+  font-size: 0.84rem;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.tab-button svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+}
+
+.tab-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab-button:hover {
-  background: var(--surface-strong);
+  border-color: rgba(95, 215, 207, 0.22);
+  background: rgba(32, 36, 31, 0.72);
   color: var(--text);
 }
 
 .tab-button.is-active {
-  border-color: rgba(117, 217, 107, 0.42);
-  background: rgba(117, 217, 107, 0.12);
+  border-color: rgba(117, 217, 107, 0.48);
+  background: rgba(117, 217, 107, 0.13);
   color: var(--green);
+  box-shadow: inset 0 0 0 1px rgba(117, 217, 107, 0.08);
 }
 
 .global-search {
   position: relative;
   display: block;
+  justify-self: end;
+  width: min(100%, 360px);
 }
 
 .global-search svg {
@@ -1643,7 +1670,7 @@ svg {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 560px) {
   body {
     padding-bottom: 74px;
   }
@@ -1659,16 +1686,27 @@ svg {
     bottom: 0;
     left: 0;
     z-index: 30;
-    justify-content: space-around;
+    display: flex;
+    justify-content: flex-start;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--line);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 0;
     background: rgba(13, 16, 15, 0.97);
     backdrop-filter: blur(18px);
   }
 
+  .view-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
   .tab-button {
-    flex: 1 1 0;
+    flex: 0 0 68px;
     min-height: 52px;
     flex-direction: column;
     gap: 3px;
