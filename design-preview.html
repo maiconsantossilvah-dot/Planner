@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jurassic Planner - Preview</title>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0f0d;
+        --panel: #151916;
+        --panel-2: #1c211d;
+        --line: #30382f;
+        --text: #f3f5ef;
+        --muted: #aab4a6;
+        --green: #79db6c;
+        --cyan: #58d4ce;
+        --amber: #efb64a;
+        --red: #ee716d;
+        --radius: 8px;
+        --shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          radial-gradient(circle at 20% 0%, rgba(121, 219, 108, 0.08), transparent 34%),
+          var(--bg);
+        background-size: 42px 42px, 42px 42px, auto, auto;
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .shell {
+        width: min(1400px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 18px 0 42px;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: grid;
+        grid-template-columns: minmax(230px, auto) 1fr auto;
+        gap: 16px;
+        align-items: center;
+        margin: -18px calc((100vw - min(1400px, calc(100vw - 32px))) / -2) 22px;
+        padding: 14px max(16px, calc((100vw - 1400px) / 2 + 16px));
+        border-bottom: 1px solid var(--line);
+        background: rgba(11, 15, 13, 0.9);
+        backdrop-filter: blur(16px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 12px;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border: 1px solid rgba(121, 219, 108, 0.48);
+        border-radius: var(--radius);
+        background: linear-gradient(135deg, rgba(121, 219, 108, 0.23), rgba(88, 212, 206, 0.12));
+        color: var(--green);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 1.15rem;
+        line-height: 1.1;
+      }
+
+      .brand span,
+      .muted {
+        color: var(--muted);
+      }
+
+      .search {
+        position: relative;
+        min-width: 220px;
+      }
+
+      .search svg {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        width: 18px;
+        height: 18px;
+        color: var(--muted);
+        transform: translateY(-50%);
+      }
+
+      .search input {
+        width: 100%;
+        min-height: 42px;
+        padding: 10px 12px 10px 40px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #101411;
+        color: var(--text);
+        outline: none;
+      }
+
+      .sync {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 0 11px;
+        border: 1px solid rgba(88, 212, 206, 0.35);
+        border-radius: 999px;
+        background: rgba(88, 212, 206, 0.1);
+        color: var(--cyan);
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .nav {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 5px;
+        padding: 5px;
+        margin-bottom: 22px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(16, 20, 17, 0.78);
+      }
+
+      .nav button,
+      .icon-btn,
+      .primary,
+      .secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 40px;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        font-weight: 800;
+        color: var(--muted);
+        background: transparent;
+      }
+
+      .nav button.active {
+        border-color: rgba(121, 219, 108, 0.48);
+        background: rgba(121, 219, 108, 0.13);
+        color: var(--green);
+      }
+
+      .nav button:hover {
+        border-color: rgba(88, 212, 206, 0.28);
+        background: rgba(28, 33, 29, 0.7);
+        color: var(--text);
+      }
+
+      .hero-row {
+        display: grid;
+        grid-template-columns: 1.35fr 0.65fr;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      .panel,
+      .metric,
+      .card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(21, 25, 22, 0.94);
+        box-shadow: var(--shadow);
+      }
+
+      .panel {
+        padding: 16px;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .eyebrow {
+        margin: 0 0 5px;
+        color: var(--green);
+        font-size: 0.74rem;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h2 {
+        margin-bottom: 0;
+        font-size: clamp(1.4rem, 2.2vw, 2.1rem);
+      }
+
+      h3 {
+        margin-bottom: 8px;
+      }
+
+      .primary {
+        padding: 0 14px;
+        border-color: rgba(121, 219, 108, 0.55);
+        background: var(--green);
+        color: #071008;
+      }
+
+      .secondary {
+        padding: 0 14px;
+        border-color: var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .metric {
+        display: grid;
+        gap: 8px;
+        min-height: 100px;
+        padding: 14px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-weight: 750;
+      }
+
+      .metric strong {
+        font-size: 2.45rem;
+        line-height: 1;
+      }
+
+      .green {
+        color: var(--green);
+      }
+
+      .cyan {
+        color: var(--cyan);
+      }
+
+      .amber {
+        color: var(--amber);
+      }
+
+      .red {
+        color: var(--red);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 0.95fr 1.05fr;
+        gap: 16px;
+      }
+
+      .list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 34px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #101411;
+      }
+
+      .check {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border: 1px solid rgba(121, 219, 108, 0.42);
+        border-radius: var(--radius);
+        color: var(--green);
+      }
+
+      .row strong,
+      .card strong {
+        display: block;
+      }
+
+      .tag-row,
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        align-items: center;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 23px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(88, 212, 206, 0.12);
+        color: var(--cyan);
+        font-size: 0.72rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      .pill.green {
+        background: rgba(121, 219, 108, 0.12);
+        color: var(--green);
+      }
+
+      .pill.amber {
+        background: rgba(239, 182, 74, 0.14);
+        color: var(--amber);
+      }
+
+      .dino-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .dino-card {
+        overflow: hidden;
+      }
+
+      .dino-media {
+        display: grid;
+        place-items: center;
+        height: 128px;
+        border-bottom: 1px solid var(--line);
+        background: #0f1411;
+      }
+
+      .dino-media img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .card-body {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .progress {
+        height: 9px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #0d110f;
+      }
+
+      .progress span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--green), var(--cyan));
+      }
+
+      .timeline-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .print-card {
+        overflow: hidden;
+      }
+
+      .print-card img {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        display: block;
+      }
+
+      @media (max-width: 980px) {
+        .topbar,
+        .hero-row,
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .search {
+          width: 100%;
+        }
+
+        .nav {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .metrics,
+        .dino-grid,
+        .timeline-strip {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 620px) {
+        .shell {
+          width: min(100% - 20px, 1400px);
+        }
+
+        .nav {
+          display: flex;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+
+        .nav::-webkit-scrollbar {
+          display: none;
+        }
+
+        .nav button {
+          flex: 0 0 82px;
+          flex-direction: column;
+          gap: 3px;
+          font-size: 0.72rem;
+        }
+
+        .metrics,
+        .dino-grid,
+        .timeline-strip {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark"><i data-lucide="footprints"></i></div>
+          <div>
+            <h1>Jurassic Planner</h1>
+            <span>Controle do parque e coleção</span>
+          </div>
+        </div>
+        <label class="search">
+          <i data-lucide="search"></i>
+          <input type="search" placeholder="Buscar dino, missão ou print" />
+        </label>
+        <div class="sync"><i data-lucide="cloud-check"></i> Supabase auto</div>
+      </header>
+
+      <nav class="nav" aria-label="Preview de navegação">
+        <button class="active"><i data-lucide="layout-dashboard"></i><span>Painel</span></button>
+        <button><i data-lucide="check-square"></i><span>Tarefas</span></button>
+        <button><i data-lucide="flag"></i><span>Missões</span></button>
+        <button><i data-lucide="calendar-days"></i><span>Calendário</span></button>
+        <button><i data-lucide="egg"></i><span>Dinos</span></button>
+        <button><i data-lucide="users"></i><span>Amigos</span></button>
+        <button><i data-lucide="images"></i><span>Timeline</span></button>
+        <button><i data-lucide="settings"></i><span>Config</span></button>
+      </nav>
+
+      <main>
+        <section class="hero-row">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Visão geral</p>
+                <h2>Painel do parque</h2>
+              </div>
+              <button class="primary"><i data-lucide="plus"></i> Nova tarefa</button>
+            </div>
+
+            <div class="metrics">
+              <article class="metric"><span>Tarefas abertas</span><strong class="green">12</strong></article>
+              <article class="metric"><span>Missões ativas</span><strong class="amber">4</strong></article>
+              <article class="metric"><span>Dinos salvos</span><strong class="cyan">18</strong></article>
+              <article class="metric"><span>Atrasadas</span><strong class="red">2</strong></article>
+            </div>
+
+            <div class="workspace">
+              <section>
+                <div class="section-head">
+                  <h3>Fila de hoje</h3>
+                  <button class="secondary">Ver tudo</button>
+                </div>
+                <div class="list">
+                  <div class="row">
+                    <span class="check"><i data-lucide="circle"></i></span>
+                    <div><strong>Coletar comida do evento</strong><span class="muted">Recursos · Alta</span></div>
+                    <span class="pill amber">Hoje</span>
+                  </div>
+                  <div class="row">
+                    <span class="check"><i data-lucide="circle"></i></span>
+                    <div><strong>Subir Blue para nível 40</strong><span class="muted">Dinossauro · DNA</span></div>
+                    <span class="pill green">75%</span>
+                  </div>
+                  <div class="row">
+                    <span class="check"><i data-lucide="circle"></i></span>
+                    <div><strong>Registrar print da evolução</strong><span class="muted">Timeline · Cloudinary</span></div>
+                    <span class="pill">Print</span>
+                  </div>
+                </div>
+              </section>
+
+              <section>
+                <div class="section-head">
+                  <h3>Dinos em progresso</h3>
+                  <button class="secondary">Novo dino</button>
+                </div>
+                <div class="dino-grid">
+                  <article class="card dino-card">
+                    <div class="dino-media"><img src="https://cdn.paleo.gg/games/jurassic-world-the-game/images/creature/indominus_rex.png" alt="Indominus Rex" /></div>
+                    <div class="card-body">
+                      <strong>Indominus Rex</strong>
+                      <div class="meta"><span class="pill green">Lendário</span><span class="pill">Amigos</span></div>
+                      <div class="progress"><span style="width: 75%"></span></div>
+                      <span class="muted">LV 30 / 40 · DNA 29.600</span>
+                    </div>
+                  </article>
+                  <article class="card dino-card">
+                    <div class="dino-media"><img src="https://cdn.paleo.gg/games/jurassic-world-the-game/images/creature/blue.png" alt="Blue" /></div>
+                    <div class="card-body">
+                      <strong>Blue</strong>
+                      <div class="meta"><span class="pill amber">Torneio</span><span class="pill">Privado</span></div>
+                      <div class="progress"><span style="width: 50%"></span></div>
+                      <span class="muted">LV 20 / 40 · Comida 63.344</span>
+                    </div>
+                  </article>
+                  <article class="card dino-card">
+                    <div class="dino-media"><img src="https://cdn.paleo.gg/games/jurassic-world-the-game/images/creature/velociraptor.png" alt="Velociraptor" /></div>
+                    <div class="card-body">
+                      <strong>Velociraptor</strong>
+                      <div class="meta"><span class="pill green">Raro</span><span class="pill">Feed</span></div>
+                      <div class="progress"><span style="width: 100%"></span></div>
+                      <span class="muted">LV 40 / 40 · Completo</span>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <aside class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Multiplayer</p>
+                <h3>Feed dos amigos</h3>
+              </div>
+            </div>
+            <div class="list">
+              <div class="row">
+                <span class="check"><i data-lucide="users"></i></span>
+                <div><strong>@maiconjw publicou Blue</strong><span class="muted">Dino · LV 30/40</span></div>
+                <span class="pill green">Novo</span>
+              </div>
+              <div class="row">
+                <span class="check"><i data-lucide="flag"></i></span>
+                <div><strong>@rex concluiu missão</strong><span class="muted">Híbrido finalizado</span></div>
+                <span class="pill">Feed</span>
+              </div>
+              <div class="row">
+                <span class="check"><i data-lucide="image"></i></span>
+                <div><strong>Print novo na timeline</strong><span class="muted">Cloudinary · Evento semanal</span></div>
+                <span class="pill amber">Print</span>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Registro recente</p>
+              <h2>Timeline</h2>
+            </div>
+            <button class="secondary"><i data-lucide="file-down"></i> Exportar</button>
+          </div>
+          <div class="timeline-strip">
+            <article class="card print-card">
+              <img src="https://images.unsplash.com/photo-1525877442103-5ddb2089b2bb?auto=format&fit=crop&w=900&q=80" alt="Preview" />
+              <div class="card-body"><strong>Primeiro lendário nível 40</strong><span class="muted">Conquista · Amigos</span></div>
+            </article>
+            <article class="card print-card">
+              <img src="https://images.unsplash.com/photo-1576788933136-3c2ce4b183d3?auto=format&fit=crop&w=900&q=80" alt="Preview" />
+              <div class="card-body"><strong>Evento semanal completo</strong><span class="muted">Missão · Cloudinary</span></div>
+            </article>
+            <article class="card print-card">
+              <img src="https://images.unsplash.com/photo-1518709268805-4e9042af2176?auto=format&fit=crop&w=900&q=80" alt="Preview" />
+              <div class="card-body"><strong>Parque reorganizado</strong><span class="muted">Parque · Privado</span></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      lucide.createIcons();
+    </script>
+  </body>
+</html>
