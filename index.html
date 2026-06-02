@@ -18,6 +18,7 @@
           </div>
           <div>
             <h1>Jurassic Planner</h1>
+            <span class="brand-subtitle">Controle do parque e coleção</span>
             <span id="syncBadge" class="sync-badge">Modo local</span>
           </div>
         </div>
@@ -43,7 +44,7 @@
             <i data-lucide="egg"></i>
             <span>Dinos</span>
           </button>
-          <button class="tab-button" type="button" data-view="news" title="Novidades">
+          <button class="tab-button nav-extra" type="button" data-view="news" title="Novidades">
             <i data-lucide="newspaper"></i>
             <span>News</span>
           </button>
@@ -51,7 +52,7 @@
             <i data-lucide="users"></i>
             <span>Amigos</span>
           </button>
-          <button class="tab-button" type="button" data-view="goals" title="Metas">
+          <button class="tab-button nav-extra" type="button" data-view="goals" title="Metas">
             <i data-lucide="target"></i>
             <span>Metas</span>
           </button>
@@ -59,7 +60,7 @@
             <i data-lucide="images"></i>
             <span>Timeline</span>
           </button>
-          <button class="tab-button" type="button" data-view="gallery" title="Galeria">
+          <button class="tab-button nav-extra" type="button" data-view="gallery" title="Galeria">
             <i data-lucide="image"></i>
             <span>Galeria</span>
           </button>
@@ -71,12 +72,88 @@
 
         <label class="global-search" for="searchInput">
           <i data-lucide="search" aria-hidden="true"></i>
-          <input id="searchInput" type="search" placeholder="Buscar" autocomplete="off" />
+          <input id="searchInput" type="search" placeholder="Buscar dino, missão ou print" autocomplete="off" />
         </label>
       </header>
 
       <main class="main-area">
         <section id="dashboardView" class="view is-active" data-view-panel="dashboard">
+          <div class="dashboard-shell">
+            <section class="dashboard-card dashboard-park-card">
+              <div class="section-heading dashboard-heading">
+                <div>
+                  <p class="eyebrow">Visão geral</p>
+                  <h2>Painel do parque</h2>
+                </div>
+                <div class="action-row">
+                  <button id="newTaskFromDashboard" class="primary-button" type="button">
+                    <i data-lucide="plus"></i>
+                    <span>Nova tarefa</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="summary-grid dashboard-summary" aria-label="Resumo">
+                <article class="metric metric-green">
+                  <span>Tarefas abertas</span>
+                  <strong id="openTaskCount">0</strong>
+                </article>
+                <article class="metric metric-amber">
+                  <span>Missões ativas</span>
+                  <strong id="activeMissionCount">0</strong>
+                </article>
+                <article class="metric metric-cyan">
+                  <span>Dinos salvos</span>
+                  <strong id="dinoCount">0</strong>
+                </article>
+                <article class="metric metric-red">
+                  <span>Atrasadas</span>
+                  <strong id="overdueTaskCount">0</strong>
+                </article>
+              </div>
+
+              <div class="dashboard-main-grid">
+                <section class="dashboard-block">
+                  <div class="panel-heading">
+                    <h3>Fila de hoje</h3>
+                    <button class="secondary-button compact-control" type="button" data-view-jump="tasks">Ver tudo</button>
+                  </div>
+                  <div id="dashboardTaskList" class="compact-list dashboard-task-list"></div>
+                </section>
+
+                <section class="dashboard-block">
+                  <div class="panel-heading">
+                    <h3>Dinos em progresso</h3>
+                    <button id="dashboardNewDinoButton" class="secondary-button compact-control" type="button">Novo dino</button>
+                  </div>
+                  <div id="dashboardDinoList" class="dashboard-dino-list"></div>
+                </section>
+              </div>
+            </section>
+
+            <aside class="dashboard-card dashboard-feed-card">
+              <p class="eyebrow">Multiplayer</p>
+              <h3>Feed dos amigos</h3>
+              <div id="dashboardFriendFeed" class="dashboard-feed-list"></div>
+            </aside>
+
+            <section class="dashboard-card dashboard-timeline-card">
+              <div class="section-heading dashboard-heading">
+                <div>
+                  <p class="eyebrow">Registro recente</p>
+                  <h2>Timeline</h2>
+                </div>
+                <button id="dashboardExportTimelineButton" class="secondary-button" type="button">
+                  <i data-lucide="file-down"></i>
+                  <span>Exportar</span>
+                </button>
+              </div>
+              <div id="dashboardTimelineList" class="mini-gallery dashboard-timeline-grid"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="legacyDashboardView" class="view legacy-dashboard is-hidden" data-view-panel="legacy-dashboard" aria-hidden="true">
           <div class="section-heading">
             <div>
               <p class="eyebrow">Visão geral</p>

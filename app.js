@@ -157,6 +157,9 @@ function bindEvents() {
   $$(".tab-button").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
+  $$("[data-view-jump]").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.viewJump));
+  });
 
   $("#searchInput").addEventListener("input", renderAll);
   $("#quickTaskForm").addEventListener("submit", handleQuickTaskSubmit);
@@ -179,6 +182,8 @@ function bindEvents() {
 
   $("#newTaskButton").addEventListener("click", () => openTaskDialog());
   $("#newTaskFromDashboard").addEventListener("click", () => openTaskDialog());
+  $("#dashboardNewDinoButton")?.addEventListener("click", () => openDinoDialog());
+  $("#dashboardExportTimelineButton")?.addEventListener("click", exportTimelineHtml);
   $("#newMissionButton").addEventListener("click", () => openMissionDialog());
   $("#newCalendarEventButton").addEventListener("click", () => openCalendarDialog());
   $("#newDinoButton").addEventListener("click", () => openDinoDialog());
@@ -1458,6 +1463,24 @@ function renderDashboard() {
   $("#dashboardTimelineList").innerHTML = recentPrints.length
     ? recentPrints.map(renderMiniPrint).join("")
     : emptyState("images", "Sem prints salvos");
+
+  const dinoList = $("#dashboardDinoList");
+  if (dinoList) {
+    const progressingDinos = state.dinosaurs
+      .filter((dino) => Number(dino.currentLevel || 1) < Number(dino.targetLevel || 40))
+      .sort((a, b) => getDinoProgress(b) - getDinoProgress(a))
+      .slice(0, 3);
+    dinoList.innerHTML = progressingDinos.length
+      ? progressingDinos.map(renderDashboardDinoCard).join("")
+      : emptyState("egg", "Nenhum dino em progresso");
+  }
+
+  const friendFeed = $("#dashboardFriendFeed");
+  if (friendFeed) {
+    friendFeed.innerHTML = socialState.sharedItems.length
+      ? socialState.sharedItems.slice(0, 3).map(renderDashboardFeedItem).join("")
+      : emptyState("users", "Sem publicações dos amigos ainda");
+  }
 }
 
 function renderTasks() {
@@ -2185,6 +2208,50 @@ function renderCompactMission(mission) {
     <article class="compact-item">
       <strong>${escapeHtml(mission.name)}</strong>
       <span>${getMissionProgress(mission)}% · ${escapeHtml(missionStatusLabels[mission.status] || mission.status)} · ${escapeHtml(priorityLabels[mission.priority] || mission.priority)}</span>
+    </article>
+  `;
+}
+
+function renderDashboardDinoCard(dino) {
+  const progress = getDinoProgress(dino);
+  const image = safeImageUrl(dino.wikiImageUrl || dino.imageUrl);
+  const dna = formatNumber(Number(dino.dnaNeeded || 0));
+  const food = formatNumber(Number(dino.foodNeeded || 0));
+  return `
+    <article class="dashboard-dino-card" role="button" tabindex="0" data-action="open-dino-detail" data-id="${escapeHtml(dino.id)}">
+      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(dino.name)}" loading="lazy" />` : `<div class="image-placeholder"><i data-lucide="egg"></i></div>`}
+      <div class="dashboard-dino-body">
+        <strong>${escapeHtml(dino.name)}</strong>
+        <div class="dashboard-dino-tags">
+          <span class="tag">${escapeHtml(dinoRarityLabels[dino.rarity] || dino.rarity)}</span>
+          ${renderVisibilityPill(dino.visibility)}
+        </div>
+        <div class="dashboard-dino-progress" aria-label="Progresso ${progress}%">
+          <span style="width: ${Math.max(3, progress)}%"></span>
+        </div>
+        <div class="dashboard-dino-stats">
+          <span>LV ${escapeHtml(dino.currentLevel)} / ${escapeHtml(dino.targetLevel)}</span>
+          <span>${dna ? `DNA ${escapeHtml(dna)}` : food ? `Comida ${escapeHtml(food)}` : "Completo"}</span>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderDashboardFeedItem(item) {
+  const owner = getSocialProfile(item.owner_id);
+  const metadata = item.metadata || {};
+  const type = sharedItemTypeLabels[item.item_type] || item.item_type || "Feed";
+  const icon = item.item_type === "dino" ? "users" : item.item_type === "timeline" ? "image" : "flag";
+  const summary = item.summary || metadata.progress || metadata.level || "Atualização compartilhada";
+  return `
+    <article class="dashboard-feed-row">
+      <i data-lucide="${icon}"></i>
+      <div>
+        <strong>@${escapeHtml(owner?.username || "usuario")} publicou ${escapeHtml(item.title || "item")}</strong>
+        <span>${escapeHtml(summary)}</span>
+      </div>
+      <span class="tag">${escapeHtml(type)}</span>
     </article>
   `;
 }
