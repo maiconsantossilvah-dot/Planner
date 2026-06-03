@@ -1,5 +1,6 @@
 const STORAGE_KEY = "jurassic-planner-v1";
 const AUTO_BACKUP_KEY = "jurassic-planner-auto-backup-v2";
+const CONFIG_STORAGE_KEY = "jurassic-planner-config-v1";
 const TRANSLATION_CACHE_KEY = "jurassic-planner-translation-cache-v1";
 const PALEO_NEWS_CACHE_KEY = "jurassic-planner-paleo-news-cache-v1";
 const SCHEMA_VERSION = 3;
@@ -131,7 +132,10 @@ let supabaseClientKey = "";
 let supabaseSession = null;
 let supabaseAuthSubscription = null;
 let supabaseSyncTimer = 0;
+let supabaseHydratedUserId = "";
 let socialRealtimeChannel = null;
+let paleoNewsMemoryCache = null;
+let translationMemoryCache = {};
 let socialState = {
   status: "idle",
   message: "Entre no Supabase para usar amigos.",
@@ -342,7 +346,7 @@ function createEmptyState() {
       testedAt: "",
       supabaseUrl: "",
       supabaseAnonKey: "",
-      supabaseAutoSync: false,
+      supabaseAutoSync: true,
       supabaseStatus: "not-configured",
       supabaseMessage: "Configure o Supabase para sincronizar seus dados entre maquinas.",
       supabaseEmail: "",
@@ -355,8 +359,20 @@ function createEmptyState() {
 
 function loadStoredState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : createEmptyState();
+    const empty = createEmptyState();
+    const legacyRaw = localStorage.getItem(STORAGE_KEY);
+    const configRaw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    const source = legacyRaw ? JSON.parse(legacyRaw) : empty;
+    const config = configRaw ? JSON.parse(configRaw) : {};
+    const data = source?.data && source?.app === "jurassic-planner" ? source.data : source;
+    return {
+      ...data,
+      settings: {
+        ...(data?.settings || empty.settings),
+        ...config,
+        supabaseAutoSync: true,
+      },
+    };
   } catch (error) {
     console.warn("Não foi possível ler os dados salvos.", error);
     return createEmptyState();
@@ -556,15 +572,36 @@ function hydrateImage(image) {
 function saveState(options = {}) {
   const shouldSync = options.sync !== false;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    writeAutoBackup();
+    writeStoredConfig();
     if (shouldSync) queueSupabaseSync();
     return true;
   } catch (error) {
-    console.error("Falha ao salvar.", error);
-    showToast("O armazenamento local ficou cheio. Exporte um backup e limpe prints locais.");
+    console.error("Falha ao salvar configuracao.", error);
+    showToast("Nao consegui salvar a configuracao local.");
     return false;
   }
+}
+
+function writeStoredConfig() {
+  const settings = state.settings || {};
+  localStorage.setItem(
+    CONFIG_STORAGE_KEY,
+    JSON.stringify({
+      cloudName: settings.cloudName || "",
+      uploadPreset: settings.uploadPreset || "",
+      folder: settings.folder || "jurassic-planner",
+      supabaseUrl: settings.supabaseUrl || "",
+      supabaseAnonKey: settings.supabaseAnonKey || "",
+      supabaseAutoSync: true,
+    }),
+  );
+}
+
+function clearLegacyLocalPlannerData() {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(AUTO_BACKUP_KEY);
+  localStorage.removeItem(PALEO_NEWS_CACHE_KEY);
+  localStorage.removeItem(TRANSLATION_CACHE_KEY);
 }
 
 function writeAutoBackup() {
@@ -594,27 +631,15 @@ function writeAutoBackup() {
 }
 
 function readPaleoNewsCache() {
-  try {
-    const raw = localStorage.getItem(PALEO_NEWS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  return paleoNewsMemoryCache;
 }
 
 function writePaleoNewsCache(cache) {
-  try {
-    localStorage.setItem(
-      PALEO_NEWS_CACHE_KEY,
-      JSON.stringify({
-        buildId: cache.buildId,
-        items: cache.items || [],
-        updatedAt: cache.updatedAt || new Date().toISOString(),
-      }),
-    );
-  } catch (error) {
-    console.warn("Cache de news ignorado.", error);
-  }
+  paleoNewsMemoryCache = {
+    buildId: cache.buildId,
+    items: cache.items || [],
+    updatedAt: cache.updatedAt || new Date().toISOString(),
+  };
 }
 
 function saveAndRender(message) {
@@ -635,7 +660,7 @@ function getSupabaseSettingsSnapshot(settings = state.settings) {
   return {
     supabaseUrl: settings.supabaseUrl || "",
     supabaseAnonKey: settings.supabaseAnonKey || "",
-    supabaseAutoSync: Boolean(settings.supabaseAutoSync),
+    supabaseAutoSync: true,
     supabaseStatus: settings.supabaseStatus || "not-configured",
     supabaseMessage: settings.supabaseMessage || "",
     supabaseEmail: settings.supabaseEmail || "",
@@ -650,7 +675,7 @@ function saveSupabaseConfigFromForm() {
   const data = Object.fromEntries(new FormData(form).entries());
   state.settings.supabaseUrl = normalizeSupabaseUrl(data.supabaseUrl);
   state.settings.supabaseAnonKey = String(data.supabaseAnonKey || "").trim();
-  state.settings.supabaseAutoSync = Boolean(data.supabaseAutoSync);
+  state.settings.supabaseAutoSync = true;
 }
 
 function getSupabaseAuthCredentials() {
@@ -709,10 +734,10 @@ async function initializeSupabase(options = {}) {
     const client = getSupabaseClient(Boolean(options.force));
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
-    applySupabaseSession(data.session, data.session ? "Conta Supabase conectada." : "Supabase configurado. Entre na sua conta para sincronizar.", { render: false });
+    applySupabaseSession(data.session, data.session ? "Conta Supabase conectada. Salvamento automatico ativo." : "Supabase configurado. Entre na sua conta para sincronizar.", { render: false });
 
     const authListener = client.auth.onAuthStateChange((_event, session) => {
-      applySupabaseSession(session, session ? "Conta Supabase conectada." : "Conta Supabase desconectada.");
+      applySupabaseSession(session, session ? "Conta Supabase conectada. Salvamento automatico ativo." : "Conta Supabase desconectada.");
     });
     supabaseAuthSubscription = authListener.data?.subscription || null;
     saveState({ sync: false });
@@ -727,11 +752,14 @@ function applySupabaseSession(session, message = "", options = {}) {
   if (supabaseSession?.user) {
     state.settings.supabaseEmail = supabaseSession.user.email || state.settings.supabaseEmail || "";
     state.settings.supabaseUserId = supabaseSession.user.id || "";
+    state.settings.supabaseAutoSync = true;
     if (state.settings.supabaseStatus !== "syncing") state.settings.supabaseStatus = "signed-in";
-    state.settings.supabaseMessage = message || "Conta conectada. Use Enviar local ou Baixar nuvem.";
+    state.settings.supabaseMessage = message || "Conta conectada. Salvamento automatico ativo.";
     loadSocialData({ silent: true });
     setupSocialRealtime();
+    if (options.loadRemote !== false) syncSupabaseOnSignIn();
   } else {
+    supabaseHydratedUserId = "";
     state.settings.supabaseEmail = "";
     state.settings.supabaseUserId = "";
     state.settings.supabaseStatus = hasSupabaseConfig() ? "signed-out" : "not-configured";
@@ -751,8 +779,15 @@ function setSupabaseStatus(status, message, options = {}) {
   if (options.toast) showToast(message);
 }
 
+async function syncSupabaseOnSignIn() {
+  const userId = supabaseSession?.user?.id || "";
+  if (!userId || supabaseHydratedUserId === userId) return;
+  supabaseHydratedUserId = userId;
+  await pullSupabaseState({ silent: true, createFromCurrent: true });
+}
+
 function canAutoSyncSupabase() {
-  return Boolean(state.settings.supabaseAutoSync && supabaseClient && supabaseSession?.user?.id && hasSupabaseConfig());
+  return Boolean(supabaseClient && supabaseSession?.user?.id && hasSupabaseConfig());
 }
 
 function queueSupabaseSync() {
@@ -803,7 +838,7 @@ async function testSupabaseConnection() {
       const client = getSupabaseClient(true);
       const { data, error } = await client.auth.getSession();
       if (error) throw error;
-      applySupabaseSession(data.session, data.session ? "Supabase pronto e conta conectada." : "Supabase pronto. Entre na sua conta para sincronizar.");
+      applySupabaseSession(data.session, data.session ? "Supabase pronto. Salvamento automatico ativo." : "Supabase pronto. Entre na sua conta para sincronizar.");
       showToast("Supabase respondeu.");
     });
   } catch (error) {
@@ -825,7 +860,7 @@ async function handleSupabaseSignIn(event) {
       const client = getSupabaseClient();
       const { data, error } = await client.auth.signInWithPassword(credentials);
       if (error) throw error;
-      applySupabaseSession(data.session, "Conta conectada. Escolha Enviar local ou Baixar nuvem.");
+      applySupabaseSession(data.session, "Conta conectada. Salvamento automatico ativo.");
       showToast("Conta Supabase conectada.");
     });
   } catch (error) {
@@ -895,6 +930,7 @@ async function pushSupabaseState(options = {}) {
     state.settings.supabaseMessage = prepared.skippedLocalImages
       ? `Metadados enviados. ${prepared.localImageCount} print${prepared.localImageCount > 1 ? "s locais ficaram" : " local ficou"} fora; envie pelo Cloudinary para sincronizar imagens.`
       : `Metadados enviados em ${formatDateTime(syncedAt)}. Imagens ficam no Cloudinary.`;
+    clearLegacyLocalPlannerData();
     saveState({ sync: false });
     renderAll();
     if (!silent) showToast(prepared.skippedLocalImages ? "Metadados enviados; prints locais nao subiram." : "Metadados enviados ao Supabase.");
@@ -910,7 +946,8 @@ async function pushSupabaseState(options = {}) {
 
 async function pullSupabaseState(options = {}) {
   const silent = Boolean(options.silent);
-  if (!silent && !confirm("Baixar os dados da nuvem e substituir os dados locais desta maquina?")) return;
+  const createFromCurrent = Boolean(options.createFromCurrent);
+  if (!silent && !confirm("Recarregar os dados do Supabase agora?")) return;
 
   const runner = async () => {
     const session = await requireSupabaseSession();
@@ -918,7 +955,12 @@ async function pullSupabaseState(options = {}) {
     const { data, error } = await supabaseClient.from(SUPABASE_TABLE).select("data, schema_version, updated_at").eq("user_id", session.user.id).maybeSingle();
     if (error) throw error;
     if (!data?.data) {
-      setSupabaseStatus("signed-in", "Nenhum dado salvo na nuvem ainda. Use Enviar local para criar seu backup Supabase.", { toast: !silent });
+      if (createFromCurrent && hasPlannerData()) {
+        await pushSupabaseState({ silent: true });
+        return;
+      }
+      clearLegacyLocalPlannerData();
+      setSupabaseStatus("signed-in", "Banco pronto. Salvamento automatico ativo.", { toast: !silent });
       return;
     }
 
@@ -932,6 +974,7 @@ async function pullSupabaseState(options = {}) {
       supabaseLastSyncedAt: new Date().toISOString(),
       supabaseRemoteUpdatedAt: data.updated_at || "",
     };
+    clearLegacyLocalPlannerData();
     saveState({ sync: false });
     renderAll();
     if (!silent) showToast("Dados baixados do Supabase.");
@@ -1446,6 +1489,10 @@ function prepareStateForSupabase() {
   }
 
   return { data, skippedLocalImages: localImageCount > 0, localImageCount };
+}
+
+function hasPlannerData(data = state) {
+  return ["tasks", "missions", "calendarEvents", "dinosaurs", "goals", "timeline"].some((key) => Array.isArray(data?.[key]) && data[key].length > 0);
 }
 
 function prepareSettingsForSupabase(settings = {}) {
@@ -3285,6 +3332,7 @@ async function translateTextToPortuguese(text) {
 }
 
 function readTranslationCache() {
+  return translationMemoryCache;
   try {
     const raw = localStorage.getItem(TRANSLATION_CACHE_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -3294,6 +3342,8 @@ function readTranslationCache() {
 }
 
 function writeTranslationCache(cache) {
+  translationMemoryCache = cache || {};
+  return;
   try {
     localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
   } catch (error) {
@@ -4296,7 +4346,7 @@ function fillSupabaseForms() {
   if (!configForm.contains(document.activeElement)) {
     configForm.elements.supabaseUrl.value = state.settings.supabaseUrl || "";
     configForm.elements.supabaseAnonKey.value = state.settings.supabaseAnonKey || "";
-    configForm.elements.supabaseAutoSync.checked = Boolean(state.settings.supabaseAutoSync);
+    if (configForm.elements.supabaseAutoSync) configForm.elements.supabaseAutoSync.checked = true;
   }
 
   const authForm = $("#supabaseAuthForm");
@@ -4322,10 +4372,10 @@ function renderCloudinaryStatus() {
   message.textContent = state.settings.cloudinaryMessage || "Preencha os campos e faça um teste de envio.";
   if (state.settings.supabaseStatus === "signed-in" || state.settings.supabaseStatus === "synced") {
     $("#storageModeText").textContent =
-      status === "ready" ? "Metadados no Supabase; imagens no Cloudinary." : "Metadados podem ir ao Supabase, mas prints precisam do Cloudinary para sincronizar.";
+      status === "ready" ? "Dados no Supabase; imagens no Cloudinary." : "Dados no Supabase; prints precisam do Cloudinary para sincronizar entre maquinas.";
   } else {
     $("#storageModeText").textContent =
-      status === "ready" ? "Dados ficam neste navegador; prints novos podem ir para o Cloudinary." : "Dados e prints sem Cloudinary ficam apenas neste navegador.";
+      status === "ready" ? "Configure e entre no Supabase para salvar os dados automaticamente." : "Sem Supabase conectado, os dados desta sessao ainda nao estao persistidos.";
   }
 }
 
@@ -4358,6 +4408,10 @@ function renderSupabaseStatus() {
 }
 
 function renderBackupStatus() {
+  $("#autoBackupText").textContent = hasSupabaseConfig()
+    ? "Backup local automatico desativado. O app salva no Supabase; exportar continua disponivel."
+    : "Configure o Supabase para persistir os dados. Exportar continua disponivel.";
+  return;
   try {
     const raw = localStorage.getItem(AUTO_BACKUP_KEY);
     if (!raw) {
@@ -4506,7 +4560,22 @@ function renderImportPreview(imported) {
 
 function confirmImportBackup() {
   if (!pendingImportState) return;
+  const settings = getSupabaseSettingsSnapshot();
+  const cloudinarySettings = {
+    cloudName: state.settings.cloudName || "",
+    uploadPreset: state.settings.uploadPreset || "",
+    folder: state.settings.folder || "jurassic-planner",
+    cloudinaryStatus: state.settings.cloudinaryStatus || "not-configured",
+    cloudinaryMessage: state.settings.cloudinaryMessage || "",
+    testedAt: state.settings.testedAt || "",
+  };
   state = pendingImportState;
+  state.settings = {
+    ...state.settings,
+    ...cloudinarySettings,
+    ...settings,
+    supabaseAutoSync: true,
+  };
   pendingImportState = null;
   $("#importPreviewDialog").close();
   saveAndRender("Backup importado.");
@@ -4530,9 +4599,24 @@ function clearLocalImages() {
 }
 
 function clearAllData() {
-  if (!confirm("Limpar todos os dados deste navegador?")) return;
+  if (!confirm("Limpar todos os dados do planner? Isso tambem sera salvo no Supabase se voce estiver conectado.")) return;
+  const settings = getSupabaseSettingsSnapshot();
+  const cloudinarySettings = {
+    cloudName: state.settings.cloudName || "",
+    uploadPreset: state.settings.uploadPreset || "",
+    folder: state.settings.folder || "jurassic-planner",
+    cloudinaryStatus: state.settings.cloudinaryStatus || "not-configured",
+    cloudinaryMessage: state.settings.cloudinaryMessage || "",
+    testedAt: state.settings.testedAt || "",
+  };
   state = createEmptyState();
-  localStorage.removeItem(AUTO_BACKUP_KEY);
+  state.settings = {
+    ...state.settings,
+    ...cloudinarySettings,
+    ...settings,
+    supabaseAutoSync: true,
+  };
+  clearLegacyLocalPlannerData();
   saveAndRender("Dados limpos.");
 }
 
