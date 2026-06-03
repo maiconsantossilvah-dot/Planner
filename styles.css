@@ -1995,8 +1995,8 @@ svg {
   }
 
   .main-area {
-    width: min(100% - 20px, 1420px);
-    padding-top: 18px;
+    width: min(100% - 14px, 1420px);
+    padding-top: 12px;
   }
 
   .section-heading,
@@ -2005,11 +2005,8 @@ svg {
     flex-direction: column;
   }
 
-  .summary-grid,
   #dashboardView .dashboard-shell,
   .dashboard-main-grid,
-  .dashboard-dino-list,
-  .dashboard-timeline-grid,
   .workspace-grid,
   .settings-grid,
   .friends-grid,
@@ -2028,9 +2025,118 @@ svg {
     grid-template-columns: 1fr;
   }
 
+  .summary-grid,
+  .dashboard-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dashboard-card,
+  .tool-panel,
+  .settings-panel,
+  .upload-panel {
+    padding: 12px;
+  }
+
+  .dashboard-park-card,
+  .dashboard-feed-card {
+    min-height: 0;
+  }
+
+  .dashboard-heading {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .section-heading h2 {
+    font-size: 1.55rem;
+  }
+
+  .metric,
+  .dashboard-summary .metric {
+    min-height: 76px;
+    padding: 10px;
+  }
+
+  .metric span {
+    font-size: 0.78rem;
+  }
+
+  .metric strong {
+    font-size: 2rem;
+  }
+
+  .dashboard-dino-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dashboard-dino-card img,
+  .dashboard-dino-card .image-placeholder {
+    aspect-ratio: 4 / 3;
+  }
+
+  .dashboard-dino-body {
+    gap: 6px;
+    padding: 9px;
+  }
+
+  .dashboard-dino-stats,
+  .dashboard-feed-row span {
+    font-size: 0.82rem;
+  }
+
+  .dashboard-feed-row {
+    grid-template-columns: 28px 1fr;
+    min-height: 56px;
+    padding: 9px;
+  }
+
+  .dashboard-feed-row .tag {
+    grid-column: 2;
+    width: fit-content;
+  }
+
+  .dashboard-timeline-grid,
+  .mini-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dashboard-timeline-grid .mini-print,
+  .dashboard-timeline-grid .mini-print img,
+  .mini-print,
+  .mini-print img {
+    min-height: 118px;
+  }
+
   .dino-grid {
-    grid-template-columns: minmax(0, 320px);
-    justify-content: center;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .dino-card {
+    gap: 7px;
+    padding: 9px;
+  }
+
+  .dino-image {
+    width: calc(100% + 18px);
+    height: 112px;
+    max-height: none;
+    margin: -9px -9px 1px;
+    object-fit: contain;
+  }
+
+  .dino-card .item-title-row {
+    gap: 5px;
+  }
+
+  .dino-card .item-title-row h3,
+  .timeline-content h3,
+  .mission-card h3 {
+    font-size: 0.92rem;
   }
 
   .task-card {
@@ -2048,8 +2154,34 @@ svg {
 
   .timeline-card {
     grid-template-columns: 1fr;
-    margin-left: 28px;
-    gap: 12px;
+    margin-left: 22px;
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .timeline-card::before {
+    left: -24px;
+    top: 18px;
+  }
+
+  .timeline-media {
+    aspect-ratio: 16 / 9;
+    max-height: 150px;
+  }
+
+  .timeline-media.no-image {
+    min-height: 108px;
+  }
+
+  .timeline-content {
+    gap: 7px;
+  }
+
+  .timeline-card p,
+  .item-description,
+  .mission-description {
+    font-size: 0.88rem;
+    line-height: 1.4;
   }
 
   .timeline-card .card-actions {
@@ -2063,10 +2195,6 @@ svg {
   .agenda-item .card-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
-  }
-
-  .mini-gallery {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .quick-form {
@@ -2088,7 +2216,26 @@ svg {
   }
 
   .image-preview {
-    aspect-ratio: 16 / 10;
+    aspect-ratio: 16 / 9;
+    max-height: 180px;
+  }
+
+  .gallery-grid,
+  .news-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .gallery-card .card-actions {
+    justify-content: flex-start;
+  }
+
+  .gallery-media {
+    aspect-ratio: 1 / 1;
+  }
+
+  .news-card img {
+    height: 112px;
   }
 
   .image-viewer-actions {
@@ -2112,6 +2259,17 @@ svg {
   .dialog-actions,
   .action-row {
     display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .dashboard-dino-list,
+  .dashboard-timeline-grid,
+  .mini-gallery,
+  .dino-grid,
+  .gallery-grid,
+  .news-grid {
     grid-template-columns: 1fr;
   }
 }
