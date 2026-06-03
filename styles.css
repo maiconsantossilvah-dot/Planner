@@ -250,6 +250,15 @@ label span {
   color: var(--text);
 }
 
+.tab-button:focus {
+  outline: none;
+}
+
+.tab-button:focus-visible {
+  border-color: rgba(88, 212, 206, 0.38);
+  box-shadow: 0 0 0 3px rgba(88, 212, 206, 0.11);
+}
+
 .tab-button.is-active {
   border-color: rgba(121, 219, 108, 0.48);
   background: rgba(121, 219, 108, 0.13);
@@ -1652,40 +1661,191 @@ label span {
   width: 100%;
 }
 
+.friends-page .section-heading h2 {
+  font-size: clamp(2rem, 4vw, 2.55rem);
+  line-height: 1;
+}
+
+.friends-hero {
+  align-items: end;
+}
+
+.friends-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 60px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.025), transparent 54%),
+    rgba(21, 25, 22, 0.94);
+  box-shadow: var(--shadow);
+}
+
+.friends-status-strip strong,
+.friends-status-strip span {
+  display: block;
+}
+
+.friends-status-strip span {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.friends-profile-grid {
+  margin-bottom: 14px;
+}
+
+.friends-panel,
+.friends-feed-section {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.025), transparent 54%),
+    rgba(21, 25, 22, 0.94);
+}
+
+.friends-panel .empty-state {
+  min-height: 86px;
+}
+
+.friends-feed-section {
+  padding: 14px;
+}
+
+.friends-feed-heading {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.friends-feed-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.friends-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #101411;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.friends-filter-chip.is-active {
+  border-color: rgba(95, 215, 207, 0.42);
+  background: rgba(95, 215, 207, 0.15);
+  color: var(--cyan);
+}
+
 .social-feed {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
 .social-card {
   display: grid;
-  gap: 10px;
+  grid-template-rows: auto 1fr auto;
   min-width: 0;
-  padding: 12px;
+  min-height: 360px;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(21, 25, 22, 0.94);
+  background: #101611;
   box-shadow: var(--shadow);
+  cursor: pointer;
 }
 
-.social-card img {
+.social-card:focus-visible {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(95, 215, 207, 0.13);
+  outline: none;
+}
+
+.social-card-media {
+  display: block;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 150px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: #0b100d;
+}
+
+.social-card-media img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: var(--radius);
-  background: #101311;
+}
+
+.social-card-media.is-contained img {
+  object-fit: contain;
+}
+
+.social-card-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--muted);
+}
+
+.social-card-body {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 12px;
 }
 
 .social-card h3 {
   margin: 0;
   overflow-wrap: anywhere;
+  font-size: 1.02rem;
 }
 
 .social-card p {
+  display: -webkit-box;
+  overflow: hidden;
   margin: 0;
-  color: var(--muted);
+  color: var(--muted-strong);
   line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.social-card-footer {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.social-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.social-card-meta span {
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.social-remove-button {
+  min-height: 34px;
+  padding-inline: 12px;
 }
 
 .friend-row {
@@ -1702,6 +1862,61 @@ label span {
 .friend-row strong,
 .friend-row span {
   overflow-wrap: anywhere;
+}
+
+.shared-detail-card {
+  max-height: min(86vh, 860px);
+  overflow: auto;
+}
+
+.shared-detail-content {
+  display: grid;
+  gap: 14px;
+}
+
+.shared-expanded-image {
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101411;
+}
+
+.shared-dino-detail {
+  display: grid;
+  grid-template-columns: minmax(190px, 280px) 1fr;
+  gap: 16px;
+}
+
+.shared-detail-media {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101411;
+  color: var(--muted);
+}
+
+.shared-detail-media img {
+  width: 100%;
+  height: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.shared-detail-main {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.shared-detail-main p {
+  margin: 0;
+  color: var(--muted-strong);
+  line-height: 1.5;
 }
 
 .action-row {
@@ -1927,6 +2142,10 @@ svg {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .social-feed {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-feed-card,
   .dashboard-timeline-card {
     grid-column: 1 / -1;
@@ -2010,8 +2229,10 @@ svg {
   .workspace-grid,
   .settings-grid,
   .friends-grid,
+  .social-feed,
   .timeline-form,
   .dino-detail-layout,
+  .shared-dino-detail,
   .dino-grid,
   .gallery-grid,
   .news-grid,
@@ -2023,6 +2244,38 @@ svg {
   .sync-actions,
   .preview-grid {
     grid-template-columns: 1fr;
+  }
+
+  .friends-status-strip,
+  .friends-feed-heading {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .friends-status-strip,
+  .friends-feed-section,
+  .friends-panel {
+    padding: 12px;
+  }
+
+  .friends-panel .empty-state {
+    min-height: 70px;
+  }
+
+  .social-card {
+    min-height: 0;
+  }
+
+  .social-card-media {
+    height: 128px;
+  }
+
+  .social-card p {
+    -webkit-line-clamp: 3;
+  }
+
+  .shared-detail-media {
+    min-height: 180px;
   }
 
   .summary-grid,
@@ -2267,6 +2520,7 @@ svg {
   .dashboard-dino-list,
   .dashboard-timeline-grid,
   .mini-gallery,
+  .social-feed,
   .dino-grid,
   .gallery-grid,
   .news-grid {

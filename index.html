@@ -423,8 +423,8 @@
           <div id="newsGrid" class="news-grid"></div>
         </section>
 
-        <section id="friendsView" class="view" data-view-panel="friends">
-          <div class="section-heading">
+        <section id="friendsView" class="view friends-page" data-view-panel="friends">
+          <div class="section-heading friends-hero">
             <div>
               <p class="eyebrow">Multiplayer</p>
               <h2>Amigos</h2>
@@ -435,10 +435,10 @@
             </button>
           </div>
 
-          <div id="friendsStatus" class="news-status"></div>
+          <div id="friendsStatus" class="friends-status-strip"></div>
 
-          <section class="friends-grid">
-            <form id="socialProfileForm" class="settings-panel">
+          <section class="friends-grid friends-profile-grid">
+            <form id="socialProfileForm" class="settings-panel friends-panel">
               <div class="panel-heading">
                 <h3>Meu perfil</h3>
               </div>
@@ -456,7 +456,7 @@
               </button>
             </form>
 
-            <form id="friendInviteForm" class="settings-panel">
+            <form id="friendInviteForm" class="settings-panel friends-panel">
               <div class="panel-heading">
                 <h3>Adicionar amigo</h3>
               </div>
@@ -471,14 +471,14 @@
             </form>
           </section>
 
-          <section class="friends-grid">
-            <div class="settings-panel">
+          <section class="friends-grid friends-profile-grid">
+            <div class="settings-panel friends-panel">
               <div class="panel-heading">
                 <h3>Convites</h3>
               </div>
               <div id="friendRequestsList" class="compact-list"></div>
             </div>
-            <div class="settings-panel">
+            <div class="settings-panel friends-panel">
               <div class="panel-heading">
                 <h3>Meus amigos</h3>
               </div>
@@ -486,9 +486,14 @@
             </div>
           </section>
 
-          <section class="settings-panel">
-            <div class="panel-heading">
+          <section class="settings-panel friends-feed-section">
+            <div class="panel-heading friends-feed-heading">
               <h3>Feed dos amigos</h3>
+              <div class="friends-feed-tools" role="group" aria-label="Filtrar feed dos amigos">
+                <button class="friends-filter-chip is-active" type="button" data-action="filter-shared-feed" data-filter="all">Todos</button>
+                <button class="friends-filter-chip" type="button" data-action="filter-shared-feed" data-filter="dino">Dinos</button>
+                <button class="friends-filter-chip" type="button" data-action="filter-shared-feed" data-filter="timeline">Prints</button>
+              </div>
             </div>
             <div id="friendsFeed" class="social-feed"></div>
           </section>
@@ -1151,6 +1156,18 @@
             <span>Adicionar cópia</span>
           </button>
         </form>
+      </div>
+    </dialog>
+
+    <dialog id="sharedFeedDialog" class="app-dialog wide-dialog">
+      <div class="dialog-card shared-detail-card">
+        <div class="dialog-heading">
+          <h2 id="sharedFeedTitle">Item do feed</h2>
+          <button class="icon-button" type="button" data-close-dialog title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="sharedFeedContent" class="shared-detail-content"></div>
       </div>
     </dialog>
 

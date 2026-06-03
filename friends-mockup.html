@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jurassic Planner - Amigos Mockup</title>
+    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <style>
+      :root {
+        --bg: #090f0c;
+        --panel: #131914;
+        --panel-2: #101511;
+        --line: #334034;
+        --line-soft: #253027;
+        --text: #f4f7ed;
+        --muted: #b8c4b4;
+        --muted-2: #8e9b8d;
+        --green: #79df6d;
+        --green-soft: rgba(121, 223, 109, 0.16);
+        --cyan: #5fe0d9;
+        --cyan-soft: rgba(95, 224, 217, 0.15);
+        --red: #ff7770;
+        --red-soft: rgba(255, 119, 112, 0.13);
+        --amber: #e6b64f;
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+          radial-gradient(circle at 25% 0%, rgba(121, 223, 109, 0.08), transparent 34%),
+          var(--bg);
+        background-size: 42px 42px, 42px 42px, 100% 100%, 100% 100%;
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 15px;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        border-bottom: 1px solid var(--line-soft);
+        background: rgba(9, 15, 12, 0.92);
+        backdrop-filter: blur(18px);
+      }
+
+      .top-inner {
+        display: grid;
+        grid-template-columns: 270px minmax(260px, 1fr) 150px;
+        gap: 20px;
+        align-items: center;
+        width: min(1400px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 16px 0 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border: 1px solid rgba(121, 223, 109, 0.58);
+        border-radius: var(--radius);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .brand strong,
+      .brand span {
+        display: block;
+      }
+
+      .brand strong {
+        font-size: 1.18rem;
+        line-height: 1.1;
+      }
+
+      .brand span {
+        margin-top: 3px;
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      .search {
+        position: relative;
+      }
+
+      .search i {
+        position: absolute;
+        left: 13px;
+        top: 50%;
+        width: 18px;
+        height: 18px;
+        color: var(--muted-2);
+        transform: translateY(-50%);
+      }
+
+      .search input,
+      .field input {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #0d120f;
+        color: var(--text);
+        outline: 0;
+      }
+
+      .search input {
+        padding: 0 14px 0 42px;
+      }
+
+      .field input {
+        padding: 0 12px;
+      }
+
+      .sync {
+        justify-self: end;
+        padding: 7px 11px;
+        border-radius: 999px;
+        background: var(--cyan-soft);
+        color: var(--cyan);
+        font-size: 0.72rem;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(84px, 1fr));
+        gap: 6px;
+        width: min(1400px, calc(100% - 32px));
+        margin: 0 auto 14px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(16, 21, 17, 0.88);
+      }
+
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 38px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        font-weight: 850;
+      }
+
+      .tab.is-active {
+        border-color: rgba(121, 223, 109, 0.62);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .page {
+        width: min(1400px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 72px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: end;
+        margin-bottom: 16px;
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--green);
+        font-size: 0.74rem;
+        font-weight: 950;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 4vw, 2.55rem);
+        line-height: 1;
+      }
+
+      h2,
+      h3 {
+        font-size: 1rem;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #192019;
+        color: var(--text);
+        font-weight: 850;
+      }
+
+      .button.primary {
+        border-color: rgba(121, 223, 109, 0.58);
+        background: var(--green);
+        color: #071008;
+      }
+
+      .button.danger {
+        min-height: 34px;
+        border-color: rgba(255, 119, 112, 0.48);
+        background: var(--red-soft);
+        color: var(--red);
+        font-size: 0.86rem;
+      }
+
+      .status-strip,
+      .panel,
+      .feed-section {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(135deg, rgba(255, 255, 255, 0.025), transparent 54%),
+          rgba(19, 25, 20, 0.94);
+        box-shadow: var(--shadow);
+      }
+
+      .status-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        min-height: 60px;
+        margin-bottom: 14px;
+        padding: 12px 14px;
+      }
+
+      .status-strip strong,
+      .status-strip span {
+        display: block;
+      }
+
+      .status-strip span {
+        margin-top: 3px;
+        color: var(--muted);
+      }
+
+      .profile-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-bottom: 14px;
+      }
+
+      .panel {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field span {
+        color: var(--text);
+        font-size: 0.82rem;
+        font-weight: 850;
+      }
+
+      .empty {
+        display: grid;
+        place-items: center;
+        min-height: 86px;
+        border: 1px dashed var(--line);
+        border-radius: var(--radius);
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .friend-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 58px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #0f1511;
+      }
+
+      .friend-row strong,
+      .friend-row span {
+        display: inline;
+      }
+
+      .friend-row span {
+        color: var(--muted);
+      }
+
+      .feed-section {
+        padding: 14px;
+      }
+
+      .feed-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .feed-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .chip,
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        min-height: 24px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .chip {
+        border: 1px solid var(--line);
+        background: #101611;
+        color: var(--muted);
+      }
+
+      .chip.is-active {
+        border-color: rgba(95, 224, 217, 0.42);
+        background: var(--cyan-soft);
+        color: var(--cyan);
+      }
+
+      .pill {
+        background: var(--cyan-soft);
+        color: var(--cyan);
+      }
+
+      .pill.green {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .feed-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .feed-card {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-height: 360px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #101611;
+      }
+
+      .feed-media {
+        display: block;
+        width: 100%;
+        height: 150px;
+        overflow: hidden;
+        border-bottom: 1px solid var(--line);
+        background: #0b100d;
+      }
+
+      .feed-media img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .feed-media.contain img {
+        object-fit: contain;
+      }
+
+      .print-art {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 100%;
+        height: 100%;
+        background:
+          linear-gradient(90deg, transparent 0 42%, rgba(244, 247, 237, 0.74) 42% 58%, transparent 58%),
+          radial-gradient(circle at 55% 42%, rgba(121, 223, 109, 0.52), transparent 16%),
+          linear-gradient(135deg, rgba(95, 224, 217, 0.26), transparent 45%),
+          linear-gradient(25deg, rgba(121, 223, 109, 0.18), rgba(0, 0, 0, 0.18)),
+          repeating-linear-gradient(0deg, #162119 0 18px, #111811 18px 36px);
+      }
+
+      .print-art::after {
+        content: "EVENTO";
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: rgba(7, 16, 8, 0.78);
+        color: var(--green);
+        font-size: 0.72rem;
+        font-weight: 950;
+        letter-spacing: 0;
+      }
+
+      .feed-body {
+        display: grid;
+        align-content: start;
+        gap: 9px;
+        padding: 12px;
+      }
+
+      .title-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        align-items: center;
+      }
+
+      .title-line h3 {
+        overflow-wrap: anywhere;
+        font-size: 1.02rem;
+      }
+
+      .summary {
+        display: -webkit-box;
+        overflow: hidden;
+        color: #d0dccb;
+        line-height: 1.45;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 4;
+      }
+
+      .feed-footer {
+        display: grid;
+        gap: 10px;
+        padding: 0 12px 12px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .meta span {
+        min-height: 24px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font-size: 0.72rem;
+        font-weight: 850;
+      }
+
+      .feed-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      @media (max-width: 980px) {
+        .top-inner {
+          grid-template-columns: 1fr;
+        }
+
+        .sync {
+          justify-self: start;
+        }
+
+        .tabs {
+          overflow-x: auto;
+          grid-template-columns: repeat(8, minmax(92px, 1fr));
+        }
+
+        .profile-grid,
+        .feed-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 620px) {
+        .top-inner,
+        .tabs,
+        .page {
+          width: min(100% - 18px, 1400px);
+        }
+
+        .hero,
+        .status-strip,
+        .profile-grid,
+        .feed-head,
+        .feed-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .status-strip,
+        .feed-head {
+          display: grid;
+          align-items: stretch;
+        }
+
+        .panel,
+        .feed-section {
+          padding: 12px;
+        }
+
+        .empty {
+          min-height: 70px;
+        }
+
+        .feed-card {
+          min-height: 0;
+        }
+
+        .feed-media {
+          height: 128px;
+        }
+
+        .summary {
+          -webkit-line-clamp: 3;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="top-inner">
+        <div class="brand">
+          <div class="mark"><i data-lucide="footprints"></i></div>
+          <div>
+            <strong>Jurassic Planner</strong>
+            <span>Controle do parque e coleção</span>
+          </div>
+        </div>
+        <label class="search">
+          <i data-lucide="search"></i>
+          <input type="search" value="" placeholder="Buscar dino, missão ou print" />
+        </label>
+        <span class="sync">Supabase auto</span>
+      </div>
+      <nav class="tabs" aria-label="Navegação principal">
+        <button class="tab" type="button"><i data-lucide="layout-dashboard"></i>Painel</button>
+        <button class="tab" type="button"><i data-lucide="check-square"></i>Tarefas</button>
+        <button class="tab" type="button"><i data-lucide="flag"></i>Missões</button>
+        <button class="tab" type="button"><i data-lucide="calendar-days"></i>Calendário</button>
+        <button class="tab" type="button"><i data-lucide="egg"></i>Dinos</button>
+        <button class="tab is-active" type="button"><i data-lucide="users"></i>Amigos</button>
+        <button class="tab" type="button"><i data-lucide="images"></i>Timeline</button>
+        <button class="tab" type="button"><i data-lucide="settings"></i>Config</button>
+      </nav>
+    </header>
+
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Multiplayer</p>
+          <h1>Amigos</h1>
+        </div>
+        <button class="button" type="button"><i data-lucide="send"></i>Publicar agora</button>
+      </section>
+
+      <section class="status-strip">
+        <div>
+          <strong>@kumayou</strong>
+          <span>Feed atualizado. 3 itens recentes de amigos.</span>
+        </div>
+        <span class="pill green">Online</span>
+      </section>
+
+      <section class="profile-grid">
+        <article class="panel">
+          <h2>Meu perfil</h2>
+          <label class="field">
+            <span>Nome</span>
+            <input value="Maicon" />
+          </label>
+          <label class="field">
+            <span>Usuário</span>
+            <input value="kumayou" />
+          </label>
+          <button class="button primary" type="button"><i data-lucide="save"></i>Salvar perfil</button>
+        </article>
+
+        <article class="panel">
+          <h2>Adicionar amigo</h2>
+          <label class="field">
+            <span>Usuário do amigo</span>
+            <input placeholder="Digite o usuário" />
+          </label>
+          <button class="button primary" type="button"><i data-lucide="user-plus"></i>Enviar convite</button>
+        </article>
+
+        <article class="panel">
+          <h2>Convites</h2>
+          <div class="empty"><i data-lucide="mail"></i><span>Sem convites pendentes</span></div>
+        </article>
+
+        <article class="panel">
+          <h2>Meus amigos</h2>
+          <div class="friend-row">
+            <div><strong>maicon.santos</strong> <span>@testes</span></div>
+            <button class="button danger" type="button">Remover</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="feed-section">
+        <div class="feed-head">
+          <h2>Feed dos amigos</h2>
+          <div class="feed-tools">
+            <span class="chip is-active">Todos</span>
+            <span class="chip">Dinos</span>
+            <span class="chip">Prints</span>
+          </div>
+        </div>
+
+        <div class="feed-grid">
+          <article class="feed-card">
+            <a class="feed-media contain" href="#">
+              <img src="https://cdn.paleo.gg/games/jwtg/images/creature/ghost.png" alt="Ghost" />
+            </a>
+            <div class="feed-body">
+              <div class="title-line">
+                <h3>Ghost</h3>
+                <span class="pill">Dino</span>
+                <span class="pill green">Amigos</span>
+              </div>
+              <p class="summary">
+                Fantasma é um Atrociraptor estreando em Jurassic World: Dominion como um antagonista criado por Biosyn. Violenta, rápida e pronta para caçar.
+              </p>
+            </div>
+            <footer class="feed-footer">
+              <div class="meta">
+                <span>@KUMAYOU</span>
+                <span>03 de jun., 08:19</span>
+                <span>Progresso: 75%</span>
+                <span>Nível: 30/40</span>
+              </div>
+              <div class="feed-actions">
+                <button class="button danger" type="button">Remover</button>
+              </div>
+            </footer>
+          </article>
+
+          <article class="feed-card">
+            <a class="feed-media" href="#">
+              <span class="print-art" aria-label="Preview do print"></span>
+            </a>
+            <div class="feed-body">
+              <div class="title-line">
+                <h3>Torneio do Parasaurolofo Gen 2</h3>
+                <span class="pill">Print</span>
+                <span class="pill green">Amigos</span>
+              </div>
+              <p class="summary">Evento semanal publicado com print do torneio. Card mais curto e com ações no rodapé.</p>
+            </div>
+            <footer class="feed-footer">
+              <div class="meta">
+                <span>@KUMAYOU</span>
+                <span>01 de jun. de 2026</span>
+                <span>Evento</span>
+              </div>
+              <div class="feed-actions">
+                <button class="button danger" type="button">Remover</button>
+              </div>
+            </footer>
+          </article>
+
+          <article class="feed-card">
+            <a class="feed-media contain" href="#">
+              <img src="https://cdn.paleo.gg/games/jwtg/images/creature/kaprosuchus.png" alt="Kaprosuchus" />
+            </a>
+            <div class="feed-body">
+              <div class="title-line">
+                <h3>Kaprosuchus</h3>
+                <span class="pill">Dino</span>
+                <span class="pill green">Amigos</span>
+              </div>
+              <p class="summary">
+                Kaprosuchus é um gênero extinto de crocodiliformes. A descrição fica limitada para preservar o ritmo visual do feed.
+              </p>
+            </div>
+            <footer class="feed-footer">
+              <div class="meta">
+                <span>@TESTES</span>
+                <span>02 de jun., 11:05</span>
+                <span>Progresso: 100%</span>
+                <span>Nível: 40/40</span>
+              </div>
+              <div class="feed-actions">
+                <button class="button danger" type="button">Remover</button>
+              </div>
+            </footer>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        if (window.lucide) window.lucide.createIcons();
+      });
+    </script>
+  </body>
+</html>

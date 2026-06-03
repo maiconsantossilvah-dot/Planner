@@ -117,6 +117,7 @@ let viewerState = {
   itemId: "",
   imageIndex: 0,
 };
+let socialFeedFilter = "all";
 let pendingDinoWikiData = null;
 let newsState = {
   status: "idle",
@@ -274,11 +275,16 @@ function handleDocumentClick(event) {
   if (action === "edit-timeline") openTimelineForEdit(id);
   if (action === "delete-timeline") deleteTimelineItem(id);
   if (action === "open-image") openImageViewer(id, imageId);
+  if (action === "open-shared-feed") openSharedFeedDialog(getSharedItem(id));
   if (action === "copy-image-url") copyImageUrl(id, imageId);
   if (action === "delete-timeline-image") deleteTimelineImage(id, imageId);
   if (action === "accept-friend") acceptFriendship(id);
   if (action === "delete-friendship") deleteFriendship(id);
   if (action === "delete-shared-item") deleteSharedItem(id);
+  if (action === "filter-shared-feed") {
+    socialFeedFilter = actionButton.dataset.filter || "all";
+    renderFriends();
+  }
 }
 
 function handleDocumentChange(event) {
@@ -1309,6 +1315,7 @@ function buildMissionSharedRow(ownerId, mission, updatedAt) {
 }
 
 function buildDinoSharedRow(ownerId, dino, updatedAt) {
+  const copies = normalizeDinoCopies(dino.copies);
   return {
     owner_id: ownerId,
     item_type: "dino",
@@ -1320,10 +1327,14 @@ function buildDinoSharedRow(ownerId, dino, updatedAt) {
     metadata: {
       progress: getDinoProgress(dino),
       level: `${dino.currentLevel}/${dino.targetLevel}`,
+      currentLevel: dino.currentLevel,
+      targetLevel: dino.targetLevel,
       rarity: dino.rarity,
       classType: dino.classType,
       dnaNeeded: dino.dnaNeeded,
       foodNeeded: dino.foodNeeded,
+      copies: copies.map((copy) => ({ level: copy.level })),
+      copiesCount: copies.length,
       tags: normalizeTags(dino.tags),
     },
     source_updated_at: dino.updatedAt || dino.createdAt || updatedAt,
@@ -1394,6 +1405,10 @@ function teardownSocialRealtime() {
 function getSocialProfile(userId) {
   if (socialState.profile?.user_id === userId) return socialState.profile;
   return socialState.profiles.find((profile) => profile.user_id === userId) || null;
+}
+
+function getSharedItem(id) {
+  return socialState.sharedItems.find((item) => item.id === id) || null;
 }
 
 function getProfileDisplayName(profile) {
@@ -1711,11 +1726,13 @@ function renderFriends() {
   const isSignedIn = Boolean(supabaseSession?.user || state.settings.supabaseUserId);
   const profile = socialState.profile;
   const profileText = profile?.username ? `@${profile.username}` : "Configure seu usuario para receber convites.";
+  const feedItems = socialFeedFilter === "all" ? socialState.sharedItems : socialState.sharedItems.filter((item) => item.item_type === socialFeedFilter);
   status.innerHTML = `
     <div>
       <strong>${escapeHtml(isSignedIn ? profileText : "Entre no Supabase")}</strong>
-      <span>${escapeHtml(isSignedIn ? socialState.message || "Amigos prontos." : "Conecte sua conta em Config para usar multiplayer.")}</span>
+      <span>${escapeHtml(isSignedIn ? socialState.message || `Feed atualizado. ${socialState.sharedItems.length} item${socialState.sharedItems.length === 1 ? "" : "s"} recente${socialState.sharedItems.length === 1 ? "" : "s"} de amigos.` : "Conecte sua conta em Config para usar multiplayer.")}</span>
     </div>
+    ${isSignedIn ? `<span class="visibility-pill visibility-shared">Online</span>` : ""}
   `;
 
   const incoming = socialState.friendships.filter((friendship) => friendship.status === "pending" && friendship.receiver_id === state.settings.supabaseUserId);
@@ -1730,8 +1747,10 @@ function renderFriends() {
     ? accepted.map(renderFriendRow).join("") || emptyState("users", "Nenhum amigo ainda")
     : emptyState("users", "Entre para ver amigos");
 
+  $$("#friendsView .friends-filter-chip").forEach((button) => button.classList.toggle("is-active", button.dataset.filter === socialFeedFilter));
+
   feed.innerHTML = isSignedIn
-    ? socialState.sharedItems.map(renderSharedFeedCard).join("") || emptyState("radio", "Sem publicacoes dos amigos ainda")
+    ? feedItems.map(renderSharedFeedCard).join("") || emptyState("radio", socialFeedFilter === "all" ? "Sem publicações dos amigos ainda" : "Nada nesse filtro")
     : emptyState("radio", "Entre para ver o feed");
 
   $("#publishSharedButton").disabled = !isSignedIn;
@@ -1785,28 +1804,105 @@ function renderSharedFeedCard(item) {
   const metadata = item.metadata || {};
   const image = safeImageUrl(item.image_url || metadata.imageUrl);
   const isMine = item.owner_id === state.settings.supabaseUserId;
+  const typeLabel = sharedItemTypeLabels[item.item_type] || item.item_type || "Feed";
+  const mediaClass = item.item_type === "dino" ? "social-card-media is-contained" : "social-card-media";
   return `
-    <article class="social-card">
-      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.title)}" loading="lazy" />` : ""}
-      <div class="item-title-row">
-        <h3>${escapeHtml(item.title || "Item compartilhado")}</h3>
-        <span class="tag">${escapeHtml(sharedItemTypeLabels[item.item_type] || item.item_type)}</span>
-        ${renderVisibilityPill(item.visibility)}
+    <article class="social-card" role="button" tabindex="0" data-action="open-shared-feed" data-id="${escapeHtml(item.id)}" title="Abrir item do feed">
+      <div class="${mediaClass}">
+        ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.title)}" loading="lazy" />` : `<div class="social-card-placeholder"><i data-lucide="${item.item_type === "dino" ? "egg" : "image"}"></i></div>`}
       </div>
-      <p>${escapeHtml(item.summary || "")}</p>
-      <div class="meta-row">
-        <span class="status-pill">@${escapeHtml(owner?.username || "usuario")}</span>
-        <span class="status-pill">${escapeHtml(formatDateTime(item.updated_at || item.created_at))}</span>
+      <div class="social-card-body">
+        <div class="item-title-row">
+          <h3>${escapeHtml(item.title || "Item compartilhado")}</h3>
+          <span class="tag">${escapeHtml(typeLabel)}</span>
+          ${renderVisibilityPill(item.visibility)}
+        </div>
+        <p>${escapeHtml(item.summary || "")}</p>
       </div>
-      ${renderSharedMetadata(metadata)}
-      ${isMine ? `<div class="card-actions"><button class="danger-button" type="button" data-action="delete-shared-item" data-id="${escapeHtml(item.id)}">Remover feed</button></div>` : ""}
+      <footer class="social-card-footer">
+        <div class="social-card-meta">
+          <span>@${escapeHtml(owner?.username || "usuario")}</span>
+          <span>${escapeHtml(formatDateTime(item.updated_at || item.created_at))}</span>
+          ${renderSharedMetadata(metadata)}
+        </div>
+        ${isMine ? `<div class="card-actions"><button class="danger-button social-remove-button" type="button" data-action="delete-shared-item" data-id="${escapeHtml(item.id)}">Remover</button></div>` : ""}
+      </footer>
     </article>
   `;
 }
 
 function renderSharedMetadata(metadata = {}) {
-  const chips = [metadata.progress ? `Progresso: ${metadata.progress}%` : "", metadata.level ? `Nivel: ${metadata.level}` : "", metadata.date ? formatDate(metadata.date) : ""].filter(Boolean);
-  return chips.length ? `<div class="wiki-stat-row">${chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}</div>` : "";
+  const chips = [metadata.progress ? `Progresso: ${metadata.progress}%` : "", metadata.level ? `Nível: ${metadata.level}` : "", metadata.date ? formatDate(metadata.date) : ""].filter(Boolean);
+  return chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("");
+}
+
+function openSharedFeedDialog(item) {
+  if (!item) return;
+  const metadata = item.metadata || {};
+  const owner = getSocialProfile(item.owner_id);
+  const image = safeImageUrl(item.image_url || metadata.imageUrl);
+  $("#sharedFeedTitle").textContent = item.title || "Item do feed";
+
+  if (item.item_type === "timeline") {
+    $("#sharedFeedContent").innerHTML = image
+      ? `<img class="shared-expanded-image" src="${escapeHtml(image)}" alt="${escapeHtml(item.title || "Print do feed")}" />`
+      : emptyState("image-off", "Esse print não tem imagem publicada");
+    showDialog("#sharedFeedDialog");
+    return;
+  }
+
+  if (item.item_type === "dino") {
+    const copies = getSharedDinoCopies(metadata);
+    const copyRows = copies.length
+      ? copies.map((level, index) => `<span>Cópia ${index + 1}: LV${escapeHtml(level)}</span>`).join("")
+      : `<span>Cópias não informadas</span>`;
+    $("#sharedFeedContent").innerHTML = `
+      <div class="shared-dino-detail">
+        <div class="shared-detail-media">
+          ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.title || "Dino")}" />` : `<i data-lucide="egg"></i>`}
+        </div>
+        <div class="shared-detail-main">
+          <div class="item-title-row">
+            <span class="tag">${escapeHtml(dinoClassLabels[metadata.classType] || metadata.classType || "Dino")}</span>
+            <span class="status-pill">${escapeHtml(dinoRarityLabels[metadata.rarity] || metadata.rarity || "Raridade")}</span>
+            ${renderVisibilityPill(item.visibility)}
+          </div>
+          <p>${escapeHtml(item.summary || "")}</p>
+          <div class="meta-grid">
+            <span>Dono: @${escapeHtml(owner?.username || "usuario")}</span>
+            <span>Nível: ${escapeHtml(metadata.level || `${metadata.currentLevel || "?"}/${metadata.targetLevel || "?"}`)}</span>
+            <span>Progresso: ${escapeHtml(metadata.progress ?? "?")}%</span>
+            <span>Cópias: ${escapeHtml(metadata.copiesCount ?? copies.length)}</span>
+          </div>
+          <div class="wiki-stat-row">${copyRows}</div>
+        </div>
+      </div>
+    `;
+    showDialog("#sharedFeedDialog");
+    refreshIcons();
+    return;
+  }
+
+  $("#sharedFeedContent").innerHTML = `
+    <div class="shared-detail-main">
+      <p>${escapeHtml(item.summary || "")}</p>
+      <div class="meta-grid">
+        <span>Dono: @${escapeHtml(owner?.username || "usuario")}</span>
+        <span>Tipo: ${escapeHtml(sharedItemTypeLabels[item.item_type] || item.item_type || "Feed")}</span>
+        <span>Atualizado: ${escapeHtml(formatDateTime(item.updated_at || item.created_at))}</span>
+      </div>
+    </div>
+  `;
+  showDialog("#sharedFeedDialog");
+}
+
+function getSharedDinoCopies(metadata = {}) {
+  if (Array.isArray(metadata.copies)) {
+    return metadata.copies
+      .map((copy) => Number(typeof copy === "object" ? copy.level : copy))
+      .filter((level) => Number.isFinite(level) && level > 0);
+  }
+  return [];
 }
 
 function renderGoals() {
