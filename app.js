@@ -4007,7 +4007,7 @@ function getImageDimensions(blob) {
 
 function updateImagePreview() {
   const files = Array.from($("#timelineImage").files || []);
-  resetImagePreview(false);
+  resetImagePreview(false, false);
   if (!files.length) return;
 
   previewUrls = files.map((file) => URL.createObjectURL(file));
@@ -4018,10 +4018,10 @@ function updateImagePreview() {
   `;
 }
 
-function resetImagePreview(refresh = true) {
+function resetImagePreview(refresh = true, clearInput = true) {
   previewUrls.forEach((url) => URL.revokeObjectURL(url));
   previewUrls = [];
-  $("#timelineImage").value = "";
+  if (clearInput) $("#timelineImage").value = "";
   $("#imagePreview").innerHTML = `<i data-lucide="image-plus"></i>`;
   if (refresh) refreshIcons();
 }
