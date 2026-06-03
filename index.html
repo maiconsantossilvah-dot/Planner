@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Jurassic Planner</title>
     <link rel="stylesheet" href="styles.css" />
-    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script defer src="https://unpkg.com/lucide@1.17.0/dist/umd/lucide.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.107.0/dist/umd/supabase.min.js"></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -164,7 +164,7 @@
                 <i data-lucide="rotate-cw"></i>
                 <span>Resetar rotina</span>
               </button>
-              <button id="newTaskFromDashboard" class="primary-button" type="button">
+              <button id="legacyNewTaskFromDashboard" class="primary-button" type="button">
                 <i data-lucide="plus"></i>
                 <span>Nova tarefa</span>
               </button>
@@ -174,11 +174,11 @@
           <div class="summary-grid" aria-label="Resumo">
             <article class="metric metric-green">
               <span>Tarefas abertas</span>
-              <strong id="openTaskCount">0</strong>
+              <strong id="legacyOpenTaskCount">0</strong>
             </article>
             <article class="metric metric-amber">
               <span>Missões ativas</span>
-              <strong id="activeMissionCount">0</strong>
+              <strong id="legacyActiveMissionCount">0</strong>
             </article>
             <article class="metric metric-cyan">
               <span>Prints salvos</span>
@@ -186,11 +186,11 @@
             </article>
             <article class="metric metric-red">
               <span>Atrasadas</span>
-              <strong id="overdueTaskCount">0</strong>
+              <strong id="legacyOverdueTaskCount">0</strong>
             </article>
             <article class="metric metric-violet">
               <span>Dinos</span>
-              <strong id="dinoCount">0</strong>
+              <strong id="legacyDinoCount">0</strong>
             </article>
             <article class="metric metric-green">
               <span>Metas ativas</span>
@@ -241,7 +241,7 @@
               <div class="panel-heading">
                 <h3>Fila de hoje</h3>
               </div>
-              <div id="dashboardTaskList" class="compact-list"></div>
+              <div id="legacyDashboardTaskList" class="compact-list"></div>
             </section>
 
             <section class="tool-panel">
@@ -255,7 +255,7 @@
               <div class="panel-heading">
                 <h3>Últimos prints</h3>
               </div>
-              <div id="dashboardTimelineList" class="mini-gallery"></div>
+              <div id="legacyDashboardTimelineList" class="mini-gallery"></div>
             </section>
           </div>
         </section>

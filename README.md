@@ -77,7 +77,7 @@ A aba `Amigos` usa o Supabase para multiplayer de leitura:
 - marque missoes, dinos, metas ou registros da timeline como `Amigos` ou `Compartilhado`
 - clique em `Publicar agora`, ou use `Enviar local`, para atualizar o feed
 
-O feed mostra metadados compartilhados. Prints aparecem no feed somente quando a imagem estiver no Cloudinary. Itens `Somente eu` nao sao publicados.
+O feed mostra metadados compartilhados. Prints aparecem no feed quando a imagem estiver no Cloudinary; ao publicar, o app tenta enviar prints locais visiveis para o Cloudinary automaticamente quando ele estiver configurado. Itens `Somente eu` nao sao publicados.
 
 Esta versao nao permite edicao colaborativa da mesma missao. Amigos apenas visualizam o que foi publicado.
 

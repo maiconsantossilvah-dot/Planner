@@ -17,7 +17,7 @@ const PALEO_SOURCE_NAME = "Paleo.gg (Jurassic World: The Game)";
 const PALEO_CDN_BASE = "https://cdn.paleo.gg/games";
 const PALEO_NEXT_DATA_BASE = "https://www.paleo.gg/_next/data";
 const PALEO_NEWS_SEED = "indominus_rex";
-const JINA_READER_PREFIX = "https://r.jina.ai/http://r.jina.ai/http://";
+const JINA_READER_PREFIX = "https://r.jina.ai/http://";
 const TRANSLATION_API = "https://api.mymemory.translated.net/get";
 
 const categoryLabels = {
@@ -576,7 +576,7 @@ function writeAutoBackup() {
           skippedImages: true,
           data: {
             ...state,
-            timeline: state.timeline.map((item) => ({ ...item, images: item.images.filter((image) => image.source === "cloudinary") })),
+            timeline: state.timeline.map((item) => ({ ...item, images: item.images.filter(isCloudinaryImage) })),
           },
         }),
       );
@@ -865,6 +865,7 @@ async function pushSupabaseState(options = {}) {
   const silent = Boolean(options.silent);
   const runner = async () => {
     const session = await requireSupabaseSession();
+    await ensureSharedTimelineImagesForPublish({ silent: true });
     const prepared = prepareStateForSupabase();
     const syncedAt = new Date().toISOString();
     setSupabaseStatus("syncing", "Enviando dados para o Supabase...", { save: true, render: !silent });
@@ -1157,9 +1158,10 @@ async function deleteSharedItem(id) {
 
 async function publishSharedItems(options = {}) {
   const silent = Boolean(options.silent);
-  try {
+  const runner = async () => {
     const session = await requireSupabaseSession();
     await ensureSocialProfile();
+    const imageStatus = await ensureSharedTimelineImagesForPublish({ silent });
     const rows = buildSharedItemRows(session.user.id);
     const existing = await supabaseClient.from(SUPABASE_SHARED_ITEMS_TABLE).select("id, item_type, item_id").eq("owner_id", session.user.id);
     if (existing.error) throw existing.error;
@@ -1177,11 +1179,99 @@ async function publishSharedItems(options = {}) {
     }
 
     await loadSocialData({ silent: true });
-    if (!silent) showToast(`${rows.length} item${rows.length === 1 ? "" : "s"} publicado${rows.length === 1 ? "" : "s"} no feed.`);
+    if (!silent) showToast(getPublishMessage(rows.length, imageStatus));
+  };
+
+  try {
+    if (silent) await runner();
+    else await withButtonBusy("#publishSharedButton", "Publicando", runner);
   } catch (error) {
     if (!silent) showToast(readableSupabaseError(error));
     else console.warn("Publicacao social ignorada.", error);
   }
+}
+
+function getPublishMessage(rowCount, imageStatus = {}) {
+  const base = `${rowCount} item${rowCount === 1 ? "" : "s"} publicado${rowCount === 1 ? "" : "s"} no feed.`;
+  if (imageStatus.uploadedCount && imageStatus.skippedLocalCount) {
+    return `${base} ${imageStatus.uploadedCount} print${imageStatus.uploadedCount === 1 ? "" : "s"} subiu${imageStatus.uploadedCount === 1 ? "" : "ram"}; ${imageStatus.skippedLocalCount} ficou${imageStatus.skippedLocalCount === 1 ? "" : "aram"} local.`;
+  }
+  if (imageStatus.uploadedCount) {
+    return `${base} ${imageStatus.uploadedCount} print${imageStatus.uploadedCount === 1 ? "" : "s"} enviado${imageStatus.uploadedCount === 1 ? "" : "s"} ao Cloudinary.`;
+  }
+  if (imageStatus.skippedLocalCount) {
+    return `${base} ${imageStatus.skippedLocalCount} print${imageStatus.skippedLocalCount === 1 ? "" : "s"} local${imageStatus.skippedLocalCount === 1 ? "" : "is"} ficou sem imagem; configure o Cloudinary.`;
+  }
+  return base;
+}
+
+async function ensureSharedTimelineImagesForPublish(options = {}) {
+  const pending = [];
+  state.timeline
+    .filter((item) => normalizeVisibility(item.visibility) !== "private")
+    .forEach((item) => {
+      getTimelineImages(item).forEach((image) => {
+        if (isUploadableLocalImage(image)) pending.push({ item, image });
+      });
+    });
+
+  if (!pending.length) return { uploadedCount: 0, skippedLocalCount: 0 };
+  if (!canTryCloudinaryUpload()) {
+    return { uploadedCount: 0, skippedLocalCount: pending.length };
+  }
+
+  let uploadedCount = 0;
+  let failedCount = 0;
+  for (const entry of pending) {
+    try {
+      const uploaded = await uploadStoredTimelineImage(entry.item, entry.image);
+      replaceTimelineImage(entry.item, entry.image, uploaded);
+      markCloudinaryUploadSuccess();
+      uploadedCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      state.settings.cloudinaryStatus = "error";
+      state.settings.cloudinaryMessage = readableCloudinaryError(error);
+      if (!options.silent) console.warn("Publicacao de print ignorada.", error);
+    }
+  }
+
+  if (uploadedCount || failedCount) saveState({ sync: false });
+  return { uploadedCount, skippedLocalCount: failedCount };
+}
+
+async function uploadStoredTimelineImage(item, image) {
+  const sourceFile = await storedImageToFile(item, image);
+  const uploadFile = await resizeImage(sourceFile, 1800, 0.9);
+  const uploaded = await uploadToCloudinary(uploadFile);
+  return {
+    ...uploaded,
+    id: image.id || uploaded.id,
+    createdAt: image.createdAt || uploaded.createdAt,
+  };
+}
+
+async function storedImageToFile(item, image) {
+  const response = await fetch(image.url);
+  if (!response.ok) throw new Error("Nao consegui ler o print local para enviar ao Cloudinary.");
+  const blob = await response.blob();
+  const type = blob.type?.startsWith("image/") ? blob.type : "image/jpeg";
+  const extension = type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+  const baseName =
+    normalizeText(item.title)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "timeline";
+  return new File([blob], `${baseName}-${image.id || createId()}.${extension}`, { type });
+}
+
+function replaceTimelineImage(item, previousImage, nextImage) {
+  const images = Array.isArray(item.images) ? item.images : [];
+  const index = images.findIndex((image) => image.id === previousImage.id);
+  if (index >= 0) images[index] = nextImage;
+  else images.push(nextImage);
+  item.images = images;
+  item.updatedAt = new Date().toISOString();
 }
 
 function buildSharedItemRows(ownerId) {
@@ -1197,7 +1287,7 @@ function buildSharedItemRows(ownerId) {
 
 function buildMissionSharedRow(ownerId, mission, updatedAt) {
   const progress = getMissionProgress(mission);
-  const image = getLinkedTimelineImages(mission.id).find((item) => item.source === "cloudinary" || String(item.url || "").startsWith("https://res.cloudinary.com/"));
+  const imageEntry = getLinkedTimelineImages(mission.id).find((entry) => normalizeVisibility(entry.item?.visibility) !== "private" && isCloudinaryImage(entry.image));
   return {
     owner_id: ownerId,
     item_type: "mission",
@@ -1205,7 +1295,7 @@ function buildMissionSharedRow(ownerId, mission, updatedAt) {
     visibility: normalizeVisibility(mission.visibility, "friends"),
     title: mission.name,
     summary: mission.description || `${progress}% - ${missionStatusLabels[mission.status] || mission.status}`,
-    image_url: image?.url || "",
+    image_url: imageEntry?.image?.url || "",
     metadata: {
       progress,
       status: mission.status,
@@ -1242,7 +1332,7 @@ function buildDinoSharedRow(ownerId, dino, updatedAt) {
 }
 
 function buildTimelineSharedRow(ownerId, item, updatedAt) {
-  const image = getTimelineImages(item).find((entry) => entry.source === "cloudinary" || String(entry.url || "").startsWith("https://res.cloudinary.com/"));
+  const image = getTimelineImages(item).find(isCloudinaryImage);
   return {
     owner_id: ownerId,
     item_type: "timeline",
@@ -1326,9 +1416,11 @@ function prepareStateForSupabase() {
   data.timeline = data.timeline.map((item) => ({
     ...item,
     images: (item.images || []).filter((image) => {
-      const isCloudinary = image.source === "cloudinary" || String(image.url || "").startsWith("https://res.cloudinary.com/");
-      if (!isCloudinary) localImageCount += 1;
-      return isCloudinary;
+      if (!isCloudinaryImage(image)) {
+        localImageCount += 1;
+        return false;
+      }
+      return true;
     }),
   }));
 
@@ -2115,7 +2207,7 @@ function renderTimelineCard(item) {
     : `<div class="timeline-media no-image"><i data-lucide="image"></i><span>Registro sem print</span></div>`;
   const thumbs = images.length > 1 ? `<div class="timeline-thumbs">${images.map((image) => renderTimelineThumb(item.id, image)).join("")}</div>` : "";
   const description = item.description ? `<p>${escapeHtml(item.description)}</p>` : "";
-  const source = images.some((image) => image.source === "cloudinary") ? "Cloudinary" : images.length ? "Local" : "Sem imagem";
+  const source = images.some(isCloudinaryImage) ? "Cloudinary" : images.length ? "Local" : "Sem imagem";
   const sourceClass = source === "Cloudinary" ? "source-cloudinary" : "source-local";
   const copyButton = firstImage
     ? `<button class="icon-button" type="button" data-action="copy-image-url" data-id="${escapeHtml(item.id)}" data-image-id="${escapeHtml(firstImage.id)}" title="Copiar link"><i data-lucide="link"></i></button>`
@@ -2557,7 +2649,7 @@ async function handleTimelineSubmit(event) {
 
     resetTimelineForm();
     saved = true;
-    const hasCloudinaryImage = uploadedImages.some((image) => image.source === "cloudinary");
+    const hasCloudinaryImage = uploadedImages.some(isCloudinaryImage);
     const hasLocalImage = uploadedImages.some((image) => image.source === "local");
     const syncConfigured = hasSupabaseConfig() || Boolean(supabaseSession?.user);
     const message = hasCloudinaryImage
@@ -2839,7 +2931,7 @@ async function fetchPaleoCreatureListData(buildId) {
   try {
     return await fetchJson(url, PALEO_SOURCE_NAME);
   } catch {
-    const mirrored = await fetchText(`${JINA_READER_PREFIX}${url}`, "Espelho do Paleo.gg");
+    const mirrored = await fetchText(toJinaReaderUrl(url), "Espelho do Paleo.gg");
     return parseJsonFromReaderText(mirrored);
   }
 }
@@ -2886,6 +2978,10 @@ async function fetchText(url, sourceName = "fonte") {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${sourceName} recusou a busca agora. Tente novamente em alguns segundos.`);
   return response.text();
+}
+
+function toJinaReaderUrl(url) {
+  return `${JINA_READER_PREFIX}${String(url || "")}`;
 }
 
 async function tryFetchDinoWikiFoodCosts(name) {
@@ -3695,10 +3791,12 @@ async function saveTimelineImages(files) {
 }
 
 async function saveTimelineImage(file) {
-  if (isCloudinaryReady()) {
+  if (canTryCloudinaryUpload()) {
     try {
       const uploadFile = await resizeImage(file, 1800, 0.9);
-      return await uploadToCloudinary(uploadFile);
+      const uploaded = await uploadToCloudinary(uploadFile);
+      markCloudinaryUploadSuccess();
+      return uploaded;
     } catch (error) {
       console.warn("Upload Cloudinary falhou.", error);
       state.settings.cloudinaryStatus = "error";
@@ -4517,7 +4615,27 @@ function sortMissions(a, b) {
 }
 
 function isCloudinaryReady(settings = state.settings) {
-  return Boolean(settings.cloudName && settings.uploadPreset);
+  return Boolean(String(settings.cloudName || "").trim() && String(settings.uploadPreset || "").trim());
+}
+
+function canTryCloudinaryUpload(settings = state.settings) {
+  return !validateCloudinarySettings(settings);
+}
+
+function markCloudinaryUploadSuccess() {
+  const now = new Date().toISOString();
+  state.settings.cloudinaryStatus = "ready";
+  state.settings.cloudinaryMessage = `Upload confirmado em ${formatDateTime(now)}.`;
+  state.settings.testedAt = state.settings.testedAt || now;
+}
+
+function isCloudinaryImage(image) {
+  return image?.source === "cloudinary" || String(image?.url || "").startsWith("https://res.cloudinary.com/");
+}
+
+function isUploadableLocalImage(image) {
+  const url = String(image?.url || "");
+  return !isCloudinaryImage(image) && (image?.source === "local" || url.startsWith("data:image/") || url.startsWith("blob:"));
 }
 
 function isDueToday(task) {

@@ -169,7 +169,7 @@ Visibilidades:
 - `Amigos`: amigos aceitos podem ver
 - `Compartilhado`: usuarios autenticados podem ver
 
-O feed publica apenas metadados. Prints aparecem somente quando a imagem estiver no Cloudinary.
+O feed publica apenas metadados. Prints aparecem quando a imagem estiver no Cloudinary; antes da publicacao, prints locais visiveis tentam ser enviados automaticamente ao Cloudinary quando houver configuracao valida.
 
 Nao implementado nesta etapa:
 
