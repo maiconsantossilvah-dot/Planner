@@ -148,6 +148,7 @@ const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(sel
 document.addEventListener("DOMContentLoaded", init);
 
 function init() {
+  window.handleBadgeImageError = handleBadgeImageError;
   bindEvents();
   setTodayOnTimelineForm();
   renderAll();
@@ -1335,6 +1336,7 @@ function buildDinoSharedRow(ownerId, dino, updatedAt) {
       foodNeeded: dino.foodNeeded,
       copies: copies.map((copy) => ({ level: copy.level })),
       copiesCount: copies.length,
+      badgeName: getDinoBadgeBaseName(dino.name, dino.wikiUrl),
       tags: normalizeTags(dino.tags),
     },
     source_updated_at: dino.updatedAt || dino.createdAt || updatedAt,
@@ -1853,6 +1855,8 @@ function openSharedFeedDialog(item) {
 
   if (item.item_type === "dino") {
     const copies = getSharedDinoCopies(metadata);
+    const badgeName = metadata.badgeName || item.title || "Dino";
+    const copyCards = copies.length ? `<div class="shared-copy-grid">${copies.map((level, index) => renderSharedDinoCopyCard(level, index, image, badgeName)).join("")}</div>` : "";
     const copyRows = copies.length
       ? copies.map((level, index) => `<span>Cópia ${index + 1}: LV${escapeHtml(level)}</span>`).join("")
       : `<span>Cópias não informadas</span>`;
@@ -1874,7 +1878,7 @@ function openSharedFeedDialog(item) {
             <span>Progresso: ${escapeHtml(metadata.progress ?? "?")}%</span>
             <span>Cópias: ${escapeHtml(metadata.copiesCount ?? copies.length)}</span>
           </div>
-          <div class="wiki-stat-row">${copyRows}</div>
+          ${copyCards || `<div class="wiki-stat-row">${copyRows}</div>`}
         </div>
       </div>
     `;
@@ -1903,6 +1907,22 @@ function getSharedDinoCopies(metadata = {}) {
       .filter((level) => Number.isFinite(level) && level > 0);
   }
   return [];
+}
+
+function renderSharedDinoCopyCard(level, index, image, title) {
+  const stageClass = getDinoCopyStageClass(level);
+  return `
+    <article class="copy-card shared-copy-card ${stageClass}">
+      <div class="copy-card-media">
+        ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)} - cÃ³pia ${index + 1}" loading="lazy" />` : `<i data-lucide="egg"></i>`}
+        <span class="copy-level-badge">LV${escapeHtml(level)}</span>
+      </div>
+      <div class="copy-card-main">
+        <strong>CÃ³pia ${index + 1}</strong>
+        <span>NÃ­vel da cÃ³pia: ${escapeHtml(level)}</span>
+      </div>
+    </article>
+  `;
 }
 
 function renderGoals() {
@@ -2196,7 +2216,7 @@ function renderDinoDetailContent(dino) {
   const sourceName = getDinoSourceName(dino.wikiUrl, dino.sourceName);
   const missionNames = getDinoMissions(dino.id).map((mission) => mission.name).join(", ");
   const copyRows = copies.length
-    ? copies.map((copy, index) => renderDinoCopyRow(dino.id, copy, index)).join("")
+    ? copies.map((copy, index) => renderDinoCopyRow(dino, copy, index)).join("")
     : `<p class="item-description">Nenhuma cópia cadastrada ainda.</p>`;
 
   content.innerHTML = `
@@ -2240,15 +2260,156 @@ function renderDinoDetailContent(dino) {
   refreshIcons();
 }
 
-function renderDinoCopyRow(dinoId, copy, index) {
+function renderDinoCopyRow(dino, copy, index) {
+  const image = safeImageUrl(dino.wikiImageUrl);
+  const stageClass = getDinoCopyStageClass(copy.level);
+  const dinoId = dino.id;
   return `
-    <div class="copy-row">
+    <article class="copy-card ${stageClass}">
+      <div class="copy-card-media">
+        ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(dino.name)} - cÃ³pia ${index + 1}" loading="lazy" />` : `<i data-lucide="egg"></i>`}
+        <span class="copy-level-badge">LV${escapeHtml(copy.level)}</span>
+      </div>
+      <div class="copy-card-main">
       <strong>Cópia ${index + 1}</strong>
       <input data-action="update-dino-copy" data-id="${escapeHtml(dinoId)}" data-copy-id="${escapeHtml(copy.id)}" type="number" min="1" max="40" value="${escapeHtml(copy.level)}" aria-label="Nível da cópia ${index + 1}" />
       <button class="icon-button" type="button" data-action="delete-dino-copy" data-id="${escapeHtml(dinoId)}" data-copy-id="${escapeHtml(copy.id)}" title="Apagar cópia">
         <i data-lucide="trash-2"></i>
       </button>
     </div>
+    </article>
+  `;
+}
+
+function getDinoCopyStageClass(level) {
+  const value = clampNumber(level, 1, 40, 1);
+  if (value >= 40) return "copy-stage-40";
+  if (value >= 30) return "copy-stage-30";
+  if (value >= 20) return "copy-stage-20";
+  return "copy-stage-10";
+}
+
+function getDinoBadgeStage(level) {
+  return Math.max(1, Math.min(4, Math.ceil(clampNumber(level, 1, 40, 1) / 10)));
+}
+
+function getDinoBadgeBaseName(name, wikiUrl = "") {
+  const fromUrl = getWikiTitleFromUrl(wikiUrl);
+  return fromUrl || String(name || "").trim();
+}
+
+function getWikiTitleFromUrl(url) {
+  const value = String(url || "");
+  const marker = "/wiki/";
+  const index = value.indexOf(marker);
+  if (index < 0) return "";
+  const raw = value.slice(index + marker.length).split(/[?#]/)[0];
+  try {
+    return decodeURIComponent(raw).replace(/_/g, " ").trim();
+  } catch {
+    return raw.replace(/_/g, " ").trim();
+  }
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function getDinoBadgeNameCandidates(name) {
+  const clean = String(name || "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const words = clean.split(" ");
+  const sentenceCase = words
+    .map((word, index) => {
+      const lower = word.toLowerCase();
+      if (/^\d+$/.test(word)) return word;
+      if (lower === "gen") return "Gen";
+      if (lower === "lux") return "Lux";
+      if (index === 0) return lower.charAt(0).toUpperCase() + lower.slice(1);
+      return lower;
+    })
+    .join(" ");
+  const titleCase = words.map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word)).join(" ");
+  return unique([clean, sentenceCase, titleCase]);
+}
+
+function getDinoBadgeImageCandidates(name, level, fallbackUrl = "") {
+  const stage = getDinoBadgeStage(level);
+  const badgeUrls = getDinoBadgeNameCandidates(name).map((baseName) => {
+    const fileName = `${baseName} Badge${stage}.png`.replace(/\s+/g, "_");
+    return `https://jurassicworld.wiki.gg/images/${encodeURIComponent(fileName)}`;
+  });
+  return unique([...badgeUrls, safeImageUrl(fallbackUrl)].filter(Boolean));
+}
+
+function renderDinoBadgeImage(name, level, fallbackUrl, alt) {
+  const candidates = getDinoBadgeImageCandidates(name, level, fallbackUrl);
+  if (!candidates.length) return `<i data-lucide="egg"></i>`;
+  const [src, ...fallbacks] = candidates;
+  const fallbackPayload = encodeURIComponent(JSON.stringify(fallbacks));
+  return `<img src="${escapeHtml(src)}" data-badge-fallbacks="${escapeHtml(fallbackPayload)}" onerror="handleBadgeImageError(this)" alt="${escapeHtml(alt)}" loading="lazy" />`;
+}
+
+function handleBadgeImageError(image) {
+  const raw = image.dataset.badgeFallbacks || "";
+  let fallbacks = [];
+  try {
+    fallbacks = JSON.parse(decodeURIComponent(raw));
+  } catch {
+    fallbacks = [];
+  }
+  const [next, ...rest] = fallbacks;
+  if (next) {
+    image.dataset.badgeFallbacks = encodeURIComponent(JSON.stringify(rest));
+    image.src = next;
+    return;
+  }
+  image.onerror = null;
+  image.removeAttribute("src");
+  image.closest(".copy-card-media")?.classList.add("is-missing-badge");
+}
+
+if (typeof window !== "undefined") {
+  window.handleBadgeImageError = handleBadgeImageError;
+}
+
+function renderDinoCopyRow(dino, copy, index) {
+  const stageClass = getDinoCopyStageClass(copy.level);
+  const badgeName = getDinoBadgeBaseName(dino.name, dino.wikiUrl);
+  return `
+    <article class="copy-card ${stageClass}">
+      <div class="copy-card-media">
+        ${renderDinoBadgeImage(badgeName, copy.level, dino.wikiImageUrl, `${dino.name} - copia ${index + 1}`)}
+        <span class="copy-level-badge">LV${escapeHtml(copy.level)}</span>
+      </div>
+      <div class="copy-card-main">
+        <strong>Copia ${index + 1}</strong>
+        <span>Nivel cadastrado: ${escapeHtml(copy.level)}</span>
+        <label>
+          <span>Modificar nivel</span>
+          <input data-action="update-dino-copy" data-id="${escapeHtml(dino.id)}" data-copy-id="${escapeHtml(copy.id)}" type="number" min="1" max="40" value="${escapeHtml(copy.level)}" aria-label="Nivel da copia ${index + 1}" />
+        </label>
+        <button class="icon-button" type="button" data-action="delete-dino-copy" data-id="${escapeHtml(dino.id)}" data-copy-id="${escapeHtml(copy.id)}" title="Apagar copia">
+          <i data-lucide="trash-2"></i>
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderSharedDinoCopyCard(level, index, image, title) {
+  const stageClass = getDinoCopyStageClass(level);
+  return `
+    <article class="copy-card shared-copy-card ${stageClass}">
+      <div class="copy-card-media">
+        ${renderDinoBadgeImage(title, level, image, `${title} - copia ${index + 1}`)}
+        <span class="copy-level-badge">LV${escapeHtml(level)}</span>
+      </div>
+      <div class="copy-card-main">
+        <strong>Copia ${index + 1}</strong>
+        <span>Nivel da copia: ${escapeHtml(level)}</span>
+      </div>
+    </article>
   `;
 }
 
